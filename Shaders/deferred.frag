@@ -10,6 +10,7 @@ layout (binding = 1) uniform sampler2D g_normal;
 layout (binding = 2) uniform sampler2D g_depth;
 
 uniform vec3 m_cameraPos;
+uniform mat4 invVP;
 
 // fényforrás tulajdonságok 
 uniform vec4 lightPosition = vec4( 0.0, 1.0, 0.0, 0.0);
@@ -19,8 +20,8 @@ uniform vec3 Ld = vec3(1.0, 1.0, 1.0 );
 uniform vec3 Ls = vec3(1.0, 1.0, 1.0 );
 
 uniform float lightConstantAttenuation    = 1.0;
-uniform float lightLinearAttenuation      = 0.0;
-uniform float lightQuadraticAttenuation   = 0.0;
+uniform float lightLinearAttenuation      = 0.06;
+uniform float lightQuadraticAttenuation   = 0.015;
 
 // anyag tulajdonságok 
 
@@ -105,12 +106,33 @@ vec3 lighting(LightProperties light, vec3 position, vec3 normal, MaterialPropert
 	return Ambient + Diffuse + Specular;
 }
 
+vec3 getWorldPos(float depth, vec2 uv)
+{
+	// UV és mélység -> NDC
+	vec3 ndc = vec3(uv * 2.0 - 1.0, depth * 2.0 - 1.0);
+
+	vec4 wp = (invVP * vec4(ndc, 1.0));
+
+	// Homogén koordináták
+	return wp.xyz / wp.w;
+}
+
 void main()
 {
-/*
+
 	// A fragment normálvektora 
 	// MINDIG normalizáljuk! 
-	vec3 normal = normalize( vs_out_norm );
+	vec3 normal = normalize( texture( g_normal, vs_out_uv).xyz * 2.0 - 1.0);
+	float depth = texture( g_depth, vs_out_uv).x;
+
+
+	// Nem árnyaljuk a hátteret
+	if (depth >= 1.0) {
+		discard;
+	}
+
+	vec3 worldPos = getWorldPos(depth, vs_out_uv);
+
 
 	LightProperties light;
 	light.pos = lightPosition;
@@ -127,12 +149,6 @@ void main()
 	material.Ks = Ks;
 	material.Shininess = Shininess;
 
-	vec3 shadedColor = lighting(light, vs_out_pos, vs_out_norm, material);
-	fs_out_col = vec4(shadedColor, 1) * texture(textureImage, vs_out_uv);
-
-	// normal vector debug:
-	// outputColor = vec4( normal * 0.5 + 0.5, 1.0 );
-	*/
-
-	fs_out_col = texture( g_diffuse, vs_out_uv);
+	vec3 shadedColor = lighting(light, worldPos, normal, material);
+	fs_out_col = vec4(shadedColor, 1) * texture(g_diffuse, vs_out_uv);
 }

@@ -88,6 +88,33 @@ void CMyApp::CleanGeometry()
 	glDeleteVertexArrays(1, &m_emptyVAO);
 }
 
+void CMyApp::InitLightSources()
+{
+	// Lights in a hexagonal shape
+	for (int i = 0; i < 6; ++i)
+	{
+		float angle = glm::radians(i * 60.0f);
+		float x = 2.0f * cos(angle);
+		float z = 2.0f * sin(angle);
+		m_lightSources.push_back({	glm::vec4(x, 3.0f, z, 1.0f), 
+									glm::vec3(0.0f), 
+									glm::vec3(abs(cos(angle)), abs(sin(angle)), abs(cos(angle + 1.0f))),
+									glm::vec3(0.0f) });
+	}
+
+	// Directional sunlight
+	m_lightSources.push_back({ glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
+								glm::vec3(0.35f),
+								glm::vec3(1.0f),
+								glm::vec3(0.5f) });
+}
+
+
+void CMyApp::InitMaterials()
+{
+	m_materials.push_back({ glm::vec3(1.0f), glm::vec3(1.0f), glm::vec3(1.0f), 20.0f });
+}
+
 void CMyApp::InitTextures()
 {
 	glCreateSamplers( 1, &m_SamplerID );
@@ -144,13 +171,16 @@ void CMyApp::InitFBOResources( int width, int height )
 	glNamedFramebufferTexture(m_frameBufferID, GL_COLOR_ATTACHMENT1, m_normalBufferID, 0);
 
 
-	// Setup renderbuffer
-	// We use renderbuffer because it's more optimized for drawing
-	// and we won't sample it later
-	glCreateRenderbuffers( 1, &m_depthBufferID );
-	glNamedRenderbufferStorage(m_depthBufferID, GL_DEPTH_COMPONENT24, width, height);
-	
-	glNamedFramebufferRenderbuffer(m_frameBufferID, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_depthBufferID);
+	// Depth
+	glCreateTextures(GL_TEXTURE_2D, 1, &m_depthBufferID);
+	glTextureStorage2D(m_depthBufferID, 1, GL_DEPTH_COMPONENT24, width, height);
+	glTextureParameteri(m_depthBufferID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTextureParameteri(m_depthBufferID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glNamedFramebufferTexture(m_frameBufferID, GL_DEPTH_ATTACHMENT, m_depthBufferID, 0);
+
+	const GLenum drawBuffers[] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
+
+	glNamedFramebufferDrawBuffers(m_frameBufferID, 2, drawBuffers);
 
 	// Completeness check
 	GLenum status = glCheckNamedFramebufferStatus(m_frameBufferID, GL_FRAMEBUFFER);
@@ -172,7 +202,7 @@ void CMyApp::InitFBOResources( int width, int height )
 
 void CMyApp::CleanFBOResources()
 {
-	glDeleteRenderbuffers( 1, &m_depthBufferID );
+	glDeleteTextures(1, &m_depthBufferID);
 	glDeleteTextures(1, &m_diffuseBufferID);
 	glDeleteTextures(1, &m_normalBufferID);
 }
@@ -187,6 +217,8 @@ bool CMyApp::Init()
 
 	InitShaders();
 	InitGeometry();
+	InitLightSources();
+	InitMaterials();
 	InitTextures();
 	InitFrameBufferObject();
 
@@ -223,6 +255,19 @@ void CMyApp::Update(const SUpdateInfo& updateInfo)
 	m_cameraManipulator.Update(updateInfo.DeltaTimeInSec);
     m_ElapsedTimeInSec = updateInfo.ElapsedTimeInSec;
 
+	// Spin point lights
+	for (size_t i = 0; i < m_lightSources.size(); ++i)
+	{
+		if (i < 6)
+		{
+			float angle = glm::radians(m_ElapsedTimeInSec * 30.0f + i * 60.0f);
+			float x = 2.0f * cos(angle);
+			float z = 2.0f * sin(angle);
+			m_lightSources[i].m_lightPosition = glm::vec4(x, 3.0f, z, 1.0f);
+			m_lightSources[i].m_Ld = { abs(cos(angle)), abs(sin(angle)), abs(cos(angle + 1.0f)) };
+		}
+	}
+
 }
 
 void CMyApp::RenderGeometry()
@@ -233,10 +278,6 @@ void CMyApp::RenderGeometry()
 	glBindSampler( 0, m_SamplerID );
 
 	glUniformMatrix4fv(ul("VP"), 1, GL_FALSE, glm::value_ptr(m_camera.GetViewProj()));
-	/*glUniform4fv(ul("lightPosition"), 1, glm::value_ptr(m_lightPosition));
-	glUniform3fv(ul("La"), 1, glm::value_ptr(m_La));
-	glUniform3fv(ul("Ld"), 1, glm::value_ptr(m_Ld));
-	glUniform3fv(ul("Ls"), 1, glm::value_ptr(m_Ls));*/
 
 	glBindVertexArray(m_Suzanne.vaoID);
 
@@ -292,15 +333,46 @@ void CMyApp::Render()
 	glBindTextureUnit( 2, m_depthBufferID);
 	glBindSampler( 0, m_SamplerID );
 
-	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+	glUniformMatrix4fv(ul("invVP"), 1, GL_FALSE, glm::value_ptr(glm::inverse(m_camera.GetViewProj())));
+	glUniform3fv(ul("m_cameraPos"), 1, glm::value_ptr(m_camera.GetEye()));
+
+	// Accumulate light sources in backbuffer
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_ONE, GL_ONE);
+	glDepthMask(GL_FALSE);
+
+	bool first = true;
+
+	for (auto& light : m_lightSources)
+	{
+		// First light overwrites the backbuffer, the others are added to it
+		if (first)
+		{
+			glBlendFunc(GL_ONE, GL_ZERO);
+			first = false;
+		}
+		else
+		{
+			glBlendFunc(GL_ONE, GL_ONE);
+		}
+
+		CMyApp::BindLightSource(light);
+		CMyApp::BindMaterial(m_materials[0]);
+
+		// Draw a full-screen quad
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	}
+
+	glDisable(GL_BLEND);
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_TRUE);
 
 	// Clean up buffers
 	glBindSampler( 0, 0 );
 	glUseProgram(0);
 	glBindVertexArray(0);
 
-
-	glEnable(GL_DEPTH_TEST);
 
 	DrawAxes();
 }

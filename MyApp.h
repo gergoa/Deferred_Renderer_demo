@@ -23,6 +23,22 @@ struct SUpdateInfo
 	float DeltaTimeInSec = 0.0f;	// Elapsed time since last update
 };
 
+struct Light
+{
+	glm::vec4 m_lightPosition;
+	glm::vec3 m_La;
+	glm::vec3 m_Ld;
+	glm::vec3 m_Ls;
+};
+
+struct Material
+{
+	glm::vec3 m_Ka;
+	glm::vec3 m_Kd;
+	glm::vec3 m_Ks;
+	float m_shininess;
+};
+
 class CMyApp
 {
 public:
@@ -73,11 +89,30 @@ protected:
 	GLuint m_deferred_pass_programID = 0; // Postprocess program
 
 
-	// Light source
-	glm::vec4 m_lightPosition = glm::vec4(0.0,1.5,0.0,1.0);
-	glm::vec3 m_La = glm::vec3(0.0, 0.0, 0.0);	// Ambient
-	glm::vec3 m_Ld = glm::vec3(1.0, 1.0, 1.0);	// Diffuse
-	glm::vec3 m_Ls = glm::vec3(0.0);  	        // Specular (OFF)
+	// Light sources
+	std::vector<Light> m_lightSources;
+
+	// Material properties
+	std::vector<Material> m_materials;
+
+	void InitLightSources();
+	void InitMaterials();
+
+	void BindLightSource(const Light& light)
+	{
+		glUniform4fv(ul("lightPosition"), 1, glm::value_ptr(light.m_lightPosition));
+		glUniform3fv(ul("La"), 1, glm::value_ptr(light.m_La));
+		glUniform3fv(ul("Ld"), 1, glm::value_ptr(light.m_Ld));
+		glUniform3fv(ul("Ls"), 1, glm::value_ptr(light.m_Ls));
+	}
+
+	void BindMaterial(const Material& material)
+	{
+		glUniform3fv(ul("Ka"), 1, glm::value_ptr(material.m_Ka));
+		glUniform3fv(ul("Kd"), 1, glm::value_ptr(material.m_Kd));
+		glUniform3fv(ul("Ks"), 1, glm::value_ptr(material.m_Ks));
+		glUniform1f(ul("shininess"), material.m_shininess);
+	}
 
 	// Shader initialization and termination
 	void InitShaders();

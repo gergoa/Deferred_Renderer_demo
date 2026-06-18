@@ -18,5 +18,5 @@ void main()
 	vec4 fragColor = texture(textureImage, vs_out_uv);
 
 	fs_out_diffuse = fragColor;
-	fs_out_norm = vec4(vs_out_norm, 0);
+	fs_out_norm = vec4(normalize(vs_out_norm), 1.0) * 0.5 + 0.5;
 }
