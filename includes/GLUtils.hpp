@@ -5,6 +5,7 @@
 
 #include <GL/glew.h>
 #include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 /* 
 
@@ -219,3 +220,19 @@ inline GLint ul(const GLchar* uniformName) noexcept
 }
 
 
+// uniform értékek beállítása az aktív programban
+void SetUniform(const char* name, const glm::mat4& matrix);
+void SetUniform(const char* name, float value);
+void SetUniform(const char* name, double value);
+void SetUniform(const char* name, int value);
+void SetUniform(const char* name, const glm::vec3& vector);
+void SetUniform(const char* name, const glm::vec4& vector);
+
+// rekurzív template függvény a uniform értékek beállítására
+inline void SetUniforms() {}
+
+template<typename T, typename... Args>
+void SetUniforms(const char* name, const T& value, const Args&... args) {
+    SetUniform(name, value);
+    SetUniforms(args...);
+}

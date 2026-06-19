@@ -103,5 +103,11 @@
     <None Include="Shaders\fullscreen.vert">
       <Filter>Shaders\Deferred</Filter>
     </None>
+    <None Include="Shaders\gbuffer.tesc">
+      <Filter>Shaders\Deferred</Filter>
+    </None>
+    <None Include="Shaders\gbuffer.tese">
+      <Filter>Shaders\Deferred</Filter>
+    </None>
   </ItemGroup>
 </Project>

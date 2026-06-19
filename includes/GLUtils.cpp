@@ -221,3 +221,41 @@ void CleanOGLObject( OGLObject& ObjectGPU )
 	glDeleteVertexArrays(1, &ObjectGPU.vaoID);
 	ObjectGPU.vaoID = 0;
 }
+
+// Uniform értékek beállítása az aktív programban
+void SetUniform(const char* name, const glm::mat4& matrix) {
+	GLint location = ul(name);
+	if (location != -1) {
+		glUniformMatrix4fv(location, 1, GL_FALSE, glm::value_ptr(matrix));
+	}
+}
+void SetUniform(const char* name, float value) {
+	GLint location = ul(name);
+	if (location != -1) {
+		glUniform1f(location, value);
+	}
+}
+void SetUniform(const char* name, double value) {
+	GLint location = ul(name);
+	if (location != -1) {
+		glUniform1d(location, value);
+	}
+}
+void SetUniform(const char* name, int value) {
+	GLint location = ul(name);
+	if (location != -1) {
+		glUniform1i(location, value);
+	}
+}
+void SetUniform(const char* name, const glm::vec3& vector) {
+	GLint location = ul(name);
+	if (location != -1) {
+		glUniform3fv(location, 1, glm::value_ptr(vector));
+	}
+}
+void SetUniform(const char* name, const glm::vec4& vector) {
+	GLint location = ul(name);
+	if (location != -1) {
+		glUniform4fv(location, 1, glm::value_ptr(vector));
+	}
+}

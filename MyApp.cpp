@@ -33,6 +33,8 @@ void CMyApp::InitShaders()
 	m_geom_pass_programID = glCreateProgram();
 	ProgramBuilder{ m_geom_pass_programID }
 		.ShaderStage(GL_VERTEX_SHADER, "Shaders/gbuffer.vert")
+		.ShaderStage(GL_TESS_CONTROL_SHADER, "Shaders/gbuffer.tesc")
+		.ShaderStage(GL_TESS_EVALUATION_SHADER, "Shaders/gbuffer.tese")
 		.ShaderStage(GL_FRAGMENT_SHADER, "Shaders/gbuffer.frag")
 		.Link();
 
@@ -103,10 +105,10 @@ void CMyApp::InitLightSources()
 	}
 
 	// Directional sunlight
-	m_lightSources.push_back({ glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
-								glm::vec3(0.35f),
-								glm::vec3(1.0f),
-								glm::vec3(0.5f) });
+	m_lightSources.push_back({glm::vec4(1.0f, 1.0f, 0.0f, 0.0f),
+								glm::vec3(0.2f),
+								glm::vec3(0.5f),
+								glm::vec3(0.25f) });
 }
 
 
@@ -270,22 +272,25 @@ void CMyApp::Update(const SUpdateInfo& updateInfo)
 
 }
 
-void CMyApp::RenderGeometry()
+void CMyApp::RenderGeometry(GLenum primitiveType)
 {
-	glUseProgram(m_geom_pass_programID);
-	glUniform1i( ul("textureImage"),0);
 	glBindTextureUnit( 0, m_metalTextureID );
 	glBindSampler( 0, m_SamplerID );
 
-	glUniformMatrix4fv(ul("VP"), 1, GL_FALSE, glm::value_ptr(m_camera.GetViewProj()));
 
 	glBindVertexArray(m_Suzanne.vaoID);
+
+	if (primitiveType == GL_PATCHES)
+	{
+		// Set the number of vertices per patch for tessellation, for now we use 3, later it will be 6 for bezier patches
+		glPatchParameteri(GL_PATCH_VERTICES, 3);
+	}
 
 	// Suzanne
 	const glm::mat4& suzanneWorld = m_suzanneWorldTransform;
     glUniformMatrix4fv( ul( "world" ), 1, GL_FALSE, glm::value_ptr( suzanneWorld ) );
     glUniformMatrix4fv( ul( "worldIT" ), 1, GL_FALSE, glm::value_ptr( glm::transpose( glm::inverse( suzanneWorld ) ) ) );
-    glDrawElements( GL_TRIANGLES, m_Suzanne.count, GL_UNSIGNED_INT, 0 );
+    glDrawElements( primitiveType, m_Suzanne.count, GL_UNSIGNED_INT, 0 );
 }
 
 void CMyApp::DrawAxes()
@@ -310,9 +315,25 @@ void CMyApp::Render()
 	glBindFramebuffer(GL_FRAMEBUFFER, m_frameBufferID);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	glUseProgram(m_geom_pass_programID);
 
-	RenderGeometry();
+	// Wireframe mode
+	if (m_wireframe_enable) glDisable(GL_CULL_FACE);
+
+	glPolygonMode(GL_FRONT, m_wireframe_enable ? GL_LINE : GL_FILL);
+	glPolygonMode(GL_BACK, m_wireframe_enable ? GL_LINE : GL_FILL);
+
+
+	glUseProgram(m_geom_pass_programID);
+	// Set uniforms for the geometry pass
+	SetUniforms(
+		"textureImage", 0,
+		"tess_level", m_tess_level,
+		"VP", m_camera.GetViewProj(),
+		"invVP", glm::inverse(m_camera.GetViewProj()),
+		"m_cameraPos", m_camera.GetEye()
+		);
+
+	RenderGeometry(GL_PATCHES);
 
 	//
 	// Draw a full-screen quad and stretch the image rendered before as texture
@@ -324,7 +345,15 @@ void CMyApp::Render()
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glDisable(GL_DEPTH_TEST);
 
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
 	glUseProgram(m_deferred_pass_programID);
+	SetUniforms(
+		"VP", m_camera.GetViewProj(),
+		"invVP", glm::inverse(m_camera.GetViewProj()),
+		"m_cameraPos", m_camera.GetEye()
+	);
+
 
 	glBindVertexArray( m_emptyVAO );
 
@@ -333,14 +362,11 @@ void CMyApp::Render()
 	glBindTextureUnit( 2, m_depthBufferID);
 	glBindSampler( 0, m_SamplerID );
 
-
-	glUniformMatrix4fv(ul("invVP"), 1, GL_FALSE, glm::value_ptr(glm::inverse(m_camera.GetViewProj())));
-	glUniform3fv(ul("m_cameraPos"), 1, glm::value_ptr(m_camera.GetEye()));
-
 	// Accumulate light sources in backbuffer
 	glEnable(GL_BLEND);
-	glBlendFunc(GL_ONE, GL_ONE);
+	glBlendEquation(GL_FUNC_ADD);
 	glDepthMask(GL_FALSE);
+
 
 	bool first = true;
 
@@ -380,9 +406,35 @@ void CMyApp::Render()
 void CMyApp::RenderGUI()
 {
 	// ImGui DemoWindow
-	ImGui::ShowDemoWindow();
+	//ImGui::ShowDemoWindow();
 
 	ImGui::SetNextWindowSize(ImVec2(455, 60), ImGuiCond_FirstUseEver);
+	if (ImGui::Begin("ImGui example"))
+	{
+		ImGui::Checkbox("Enable wireframe mode?", &m_wireframe_enable);
+
+		if (ImGui::CollapsingHeader("Options"))
+		{
+			/*static float refresh_time = 0.1f;
+			static float timer = 0;
+			static int   frameCount = 0;
+			static float fps = 0;
+
+			timer += static_cast<float>(m_delt);
+			++frameCount;
+			if (timer > refresh_time) {
+				fps = frameCount / timer;
+				timer = 0;
+				frameCount = 0;
+			}
+			ImGui::Text("FPS: %d", static_cast<int>(fps));
+
+			ImGui::SliderFloat("Refresh time", &refresh_time, 0.01f, 1.0f);
+			ImGui::Separator();*/
+			ImGui::SliderFloat("Tess level", &m_tess_level, 0.01f, 10.0f);
+		}
+	} //window
+	ImGui::End();
 }
 
 // https://wiki.libsdl.org/SDL3/SDL_KeyboardEvent

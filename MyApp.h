@@ -63,7 +63,7 @@ public:
 	void OtherEvent(const SDL_Event&);
 protected:
 	void SetupDebugCallback();
-	void RenderGeometry();
+	void RenderGeometry(GLenum primitiveType);
 
 	//
 	// Variables
@@ -132,9 +132,14 @@ protected:
 
 	GLuint m_metalTextureID = 0;
 
+
 	// Texture initialization and termination
 	void InitTextures();
 	void CleanTextures();
+
+	// Tessellation
+	bool m_wireframe_enable = false;
+	float m_tess_level = 1.0f;
 
 	// Framebuffer variables
 	GLuint m_frameBufferID = 0;
