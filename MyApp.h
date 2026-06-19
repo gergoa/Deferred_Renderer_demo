@@ -70,7 +70,7 @@ protected:
 	//
 	float m_ElapsedTimeInSec = 0.0f;
 
-	glm::mat4 m_suzanneWorldTransform = glm::translate<float>(glm::vec3(0,0,0));
+	glm::mat4 m_suzanneWorldTransform = glm::translate<float>(glm::vec3(0,0,0)) * glm::scale(glm::vec3(2,2,2));
 
 	// Camera
 	Camera m_camera;

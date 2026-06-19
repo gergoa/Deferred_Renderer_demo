@@ -96,9 +96,9 @@ void CMyApp::InitLightSources()
 	for (int i = 0; i < 6; ++i)
 	{
 		float angle = glm::radians(i * 60.0f);
-		float x = 2.0f * cos(angle);
-		float z = 2.0f * sin(angle);
-		m_lightSources.push_back({	glm::vec4(x, 3.0f, z, 1.0f), 
+		float x = 6.0f * cos(angle);
+		float z = 6.0f * sin(angle);
+		m_lightSources.push_back({	glm::vec4(x, -2.0f, z, 1.0f), 
 									glm::vec3(0.0f), 
 									glm::vec3(abs(cos(angle)), abs(sin(angle)), abs(cos(angle + 1.0f))),
 									glm::vec3(0.0f) });
@@ -263,9 +263,9 @@ void CMyApp::Update(const SUpdateInfo& updateInfo)
 		if (i < 6)
 		{
 			float angle = glm::radians(m_ElapsedTimeInSec * 30.0f + i * 60.0f);
-			float x = 2.0f * cos(angle);
-			float z = 2.0f * sin(angle);
-			m_lightSources[i].m_lightPosition = glm::vec4(x, 3.0f, z, 1.0f);
+			float x = 6.0f * cos(angle);
+			float z = 6.0f * sin(angle);
+			m_lightSources[i].m_lightPosition = glm::vec4(x, -2.0f, z, 1.0f);
 			m_lightSources[i].m_Ld = { abs(cos(angle)), abs(sin(angle)), abs(cos(angle + 1.0f)) };
 		}
 	}
@@ -282,7 +282,6 @@ void CMyApp::RenderGeometry(GLenum primitiveType)
 
 	if (primitiveType == GL_PATCHES)
 	{
-		// Set the number of vertices per patch for tessellation, for now we use 3, later it will be 6 for bezier patches
 		glPatchParameteri(GL_PATCH_VERTICES, 3);
 	}
 

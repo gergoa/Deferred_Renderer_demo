@@ -1,6 +1,6 @@
 #version 420
 
-layout (triangles, equal_spacing) in;
+layout (triangles, fractional_even_spacing, ccw) in;
 
 in block
 {
@@ -38,15 +38,19 @@ void main()
 	vec3 pos = u*p0 + v*p1 + w*p2;
 	vec3 norm = normalize(u*n0 + v*n1 + w*n2);
 
-	/*
+	
 	float B[6]	= { w*w, 2*u*w, u*u, 2*v*u, v*v, 2*v*w};
 	float dB[3] = { w, u, v };
 
 	Out.position = vec3(0);
+	Out.uv = vec2(0);
 
 	// Calculate b(u,v,w)
 	for (int i=0; i<6; ++i)
+	{
 		Out.position += In[i].position*B[i];
+		Out.uv += In[i].uv*B[i];
+	}
 
 	// Derivatives
 	vec3 d1b[3];
@@ -66,8 +70,7 @@ void main()
 		eval_d1 += d1b[i]*dB[i];
 		eval_d2 += d2b[i]*dB[i];
 	}
-	*/
-	gl_Position  = VP * vec4(pos, 1.0);
-	Out.normal	 = norm;
-	Out.uv = texCoord;
+	
+	gl_Position  = VP * vec4(Out.position, 1);
+	Out.normal	 = normalize(cross(eval_d2, eval_d1));
 }

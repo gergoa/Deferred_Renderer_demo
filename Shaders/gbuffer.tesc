@@ -1,11 +1,10 @@
 #version 420 core
 
-/*vec3 CalcEdgePoint(vec3 a, vec3 b, vec3 n, vec3 m)
-{
-	return 0.5*(a+b)+normalize(n+m)*distance(a,b)*0.1;
-}*/
+layout(vertices = 6) out;
 
-layout(vertices = 3) out;
+const float MAX_TESS = 16.0;
+const float MIN_DIST = 0.5;
+const float MAX_DIST = 5.0;
 
 
 in block
@@ -25,26 +24,45 @@ out block
 uniform float tess_level = 32.0;
 uniform vec3 m_cameraPos;
 
+
+float GetTessLevel(float d)
+{
+	float p = clamp((d - MIN_DIST) / (MAX_DIST - MIN_DIST), 0.0, 1.0);
+	float factor = clamp(1.0 - p, 0.0, 1.0);
+
+	return mix(1.0, MAX_TESS, factor);
+}
+
 void main()
 {
-	// kiszámoljuk a kamera távolságát az él középpontjától 
-	float dist = distance(m_cameraPos, 0.3333*(In[0].position+In[1].position+In[2].position));
-	float tess_final = clamp(tess_level / dist, 0.1, 32.0);
 
+	// tesszellációs szint
 	if (0 == gl_InvocationID)	{
-		gl_TessLevelInner[0] = tess_final;
 
-		gl_TessLevelOuter[0] = tess_final;
-		gl_TessLevelOuter[1] = tess_final;
-		gl_TessLevelOuter[2] = tess_final;
+		// kiszámoljuk a kamera távolságát a primitív csúcsaitól 
+		float d0 = distance(m_cameraPos, In[0].position);
+		float d1 = distance(m_cameraPos, In[1].position);
+		float d2 = distance(m_cameraPos, In[2].position);
+
+		// élek mértani közepének távolságai
+		float e0 = (d1 + d2) * 0.5;
+		float e1 = (d0 + d2) * 0.5;
+		float e2 = (d0 + d1) * 0.5;
+
+		float t0 = GetTessLevel(d0);
+		float t1 = GetTessLevel(d1);
+		float t2 = GetTessLevel(d2);
+
+		gl_TessLevelInner[0] = max(t0, max(t1, t2));
+
+		gl_TessLevelOuter[0] = t0;
+		gl_TessLevelOuter[1] = t1;
+		gl_TessLevelOuter[2] = t2;
 	}
 
-	Out[gl_InvocationID].position = In[gl_InvocationID].position;
-	Out[gl_InvocationID].normal   = In[gl_InvocationID].normal;
-	Out[gl_InvocationID].uv = In[gl_InvocationID].uv;
-	/*
 	if(gl_InvocationID %2 == 0)	{
 		Out[gl_InvocationID].position = In[gl_InvocationID/2].position;
+		Out[gl_InvocationID].normal = In[gl_InvocationID/2].normal;
 		Out[gl_InvocationID].uv = In[gl_InvocationID/2].uv;
 	}
 	else {
@@ -56,7 +74,13 @@ void main()
 		vec3 b = In[next].position;
 		vec3 m = In[next].normal;
 		vec2 s = In[next].uv;
-		Out[gl_InvocationID].position = CalcEdgePoint(a,b,n,m);
+
+		vec3 mid_ab = 0.5 * (a+b);
+		vec3 mid_nm = normalize(n+m);
+
+
+		Out[gl_InvocationID].position = mid_ab + mid_nm * distance(a,b) * 0.155;
+		Out[gl_InvocationID].normal = normalize(mix(n,m,0.5));
 		Out[gl_InvocationID].uv = 0.5*(t+s);
-	}*/
+	}
 }
