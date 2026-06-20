@@ -55,9 +55,24 @@
     <Image Include="Assets\metal.png">
       <Filter>Assets</Filter>
     </Image>
+    <Image Include="Assets\Bird_v1.jpg">
+      <Filter>Assets</Filter>
+    </Image>
+    <Image Include="Assets\wall.jpg">
+      <Filter>Assets</Filter>
+    </Image>
   </ItemGroup>
   <ItemGroup>
     <Text Include="Assets\Suzanne.obj">
+      <Filter>Assets</Filter>
+    </Text>
+    <Text Include="Assets\Bird_v1.obj">
+      <Filter>Assets</Filter>
+    </Text>
+    <Text Include="Assets\Wall.obj">
+      <Filter>Assets</Filter>
+    </Text>
+    <Text Include="Assets\Mirror.obj">
       <Filter>Assets</Filter>
     </Text>
   </ItemGroup>
@@ -107,6 +122,9 @@
       <Filter>Shaders\Deferred</Filter>
     </None>
     <None Include="Shaders\gbuffer.tese">
+      <Filter>Shaders\Deferred</Filter>
+    </None>
+    <None Include="Shaders\postprocess.frag">
       <Filter>Shaders\Deferred</Filter>
     </None>
   </ItemGroup>

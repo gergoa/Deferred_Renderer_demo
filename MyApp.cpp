@@ -5,6 +5,7 @@
 #include "ProgramBuilder.h"
 
 #include <imgui.h>
+#include <algorithm>
 #include <iostream>
 CMyApp::CMyApp()
 {
@@ -42,6 +43,12 @@ void CMyApp::InitShaders()
 	ProgramBuilder{ m_deferred_pass_programID }
 		.ShaderStage(GL_VERTEX_SHADER, "Shaders/fullscreen.vert")
 		.ShaderStage(GL_FRAGMENT_SHADER, "Shaders/deferred.frag")
+		.Link();
+	
+	m_postprocess_programID = glCreateProgram();
+	ProgramBuilder{ m_postprocess_programID }
+		.ShaderStage(GL_VERTEX_SHADER, "Shaders/fullscreen.vert")
+		.ShaderStage(GL_FRAGMENT_SHADER, "Shaders/postprocess.frag")
 		.Link();
 
 	InitAxesShader();
@@ -82,11 +89,26 @@ void CMyApp::InitGeometry()
 	// Suzanne
 	MeshObject<Vertex> suzanneMeshCPU = ObjParser::parse("Assets/Suzanne.obj");
 	m_Suzanne = CreateGLObjectFromMesh(suzanneMeshCPU, vertexAttribList);
+
+	// Bird
+	MeshObject<Vertex> birdMeshCPU = ObjParser::parse("Assets/Bird_v1.obj");
+	m_Bird = CreateGLObjectFromMesh(birdMeshCPU, vertexAttribList);
+
+	// Wall
+	MeshObject<Vertex> wallMeshCPU = ObjParser::parse("Assets/Wall.obj");
+	m_Wall = CreateGLObjectFromMesh(wallMeshCPU, vertexAttribList);
+
+	// Mirror
+	MeshObject<Vertex> mirrorMeshCPU = ObjParser::parse("Assets/Mirror.obj");
+	m_Mirror = CreateGLObjectFromMesh(mirrorMeshCPU, vertexAttribList);
 }
 
 void CMyApp::CleanGeometry()
 {
 	CleanOGLObject(m_Suzanne);
+	CleanOGLObject(m_Bird);
+	CleanOGLObject(m_Wall);
+	CleanOGLObject(m_Mirror);
 	glDeleteVertexArrays(1, &m_emptyVAO);
 }
 
@@ -132,37 +154,59 @@ void CMyApp::InitTextures()
 	glTextureSubImage2D( m_metalTextureID, 0, 0, 0, metalImage.width, metalImage.height, GL_RGBA, GL_UNSIGNED_BYTE, metalImage.data() );
 
 	glGenerateTextureMipmap( m_metalTextureID );
+
+
+	ImageRGBA birdImage = ImageFromFile("Assets/Bird_v1.jpg");
+
+	glCreateTextures(GL_TEXTURE_2D, 1, &m_birdTextureID);
+	glTextureStorage2D(m_birdTextureID, NumberOfMIPLevels(birdImage), GL_RGBA8, birdImage.width, birdImage.height);
+	glTextureSubImage2D(m_birdTextureID, 0, 0, 0, birdImage.width, birdImage.height, GL_RGBA, GL_UNSIGNED_BYTE, birdImage.data());
+
+	glGenerateTextureMipmap(m_birdTextureID);
+
+
+	ImageRGBA wallImage = ImageFromFile("Assets/wall.jpg");
+	glCreateTextures(GL_TEXTURE_2D, 1, &m_wallTextureID);
+	glTextureStorage2D(m_wallTextureID, NumberOfMIPLevels(wallImage), GL_RGBA8, wallImage.width, wallImage.height);
+	glTextureSubImage2D(m_wallTextureID, 0, 0, 0, wallImage.width, wallImage.height, GL_RGBA, GL_UNSIGNED_BYTE, wallImage.data());
+	glGenerateTextureMipmap(m_wallTextureID);
 }
 
 void CMyApp::CleanTextures()
 {
 	glDeleteTextures(1, &m_metalTextureID);
+	glDeleteTextures(1, &m_birdTextureID);
+	glDeleteTextures(1, &m_wallTextureID);
 
 	glDeleteSamplers( 1, &m_SamplerID );
 }
 
-void CMyApp::InitFrameBufferObject()
+void CMyApp::InitFrameBufferObjects()
 {
 	// FBO létrehozása
-	glCreateFramebuffers(1, &m_frameBufferID);
+	glCreateFramebuffers(1, &m_geometry_fboID);
+	glCreateFramebuffers(1, &m_accum_fboID);
+	glCreateFramebuffers(1, &m_light_pass_fboID);
 }
 
-void CMyApp::CleanFrameBufferObject()
+void CMyApp::CleanFrameBufferObjects()
 {
-	glDeleteFramebuffers( 1, &m_frameBufferID );
+	glDeleteFramebuffers( 1, &m_geometry_fboID );
+	glDeleteFramebuffers(1, &m_accum_fboID);
+	glDeleteFramebuffers( 1, &m_light_pass_fboID );
 }
 
-void CMyApp::InitFBOResources( int width, int height )
+void CMyApp::InitGeometryFBO(int width, int height)
 {
 	// Setup the texture
 	// We use texture because we will sample it later in the shader
 
 	// Diffuse
-	glCreateTextures( GL_TEXTURE_2D, 1, &m_diffuseBufferID );
-	glTextureStorage2D( m_diffuseBufferID, 1, GL_RGBA8, width, height );
+	glCreateTextures(GL_TEXTURE_2D, 1, &m_diffuseBufferID);
+	glTextureStorage2D(m_diffuseBufferID, 1, GL_RGBA8, width, height);
 	glTextureParameteri(m_diffuseBufferID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTextureParameteri(m_diffuseBufferID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glNamedFramebufferTexture(m_frameBufferID, GL_COLOR_ATTACHMENT0, m_diffuseBufferID, 0);
+	glNamedFramebufferTexture(m_geometry_fboID, GL_COLOR_ATTACHMENT0, m_diffuseBufferID, 0);
 
 
 	// Normal
@@ -170,7 +214,7 @@ void CMyApp::InitFBOResources( int width, int height )
 	glTextureStorage2D(m_normalBufferID, 1, GL_RGBA16_SNORM, width, height);
 	glTextureParameteri(m_normalBufferID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTextureParameteri(m_normalBufferID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glNamedFramebufferTexture(m_frameBufferID, GL_COLOR_ATTACHMENT1, m_normalBufferID, 0);
+	glNamedFramebufferTexture(m_geometry_fboID, GL_COLOR_ATTACHMENT1, m_normalBufferID, 0);
 
 
 	// Depth
@@ -178,14 +222,14 @@ void CMyApp::InitFBOResources( int width, int height )
 	glTextureStorage2D(m_depthBufferID, 1, GL_DEPTH_COMPONENT24, width, height);
 	glTextureParameteri(m_depthBufferID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTextureParameteri(m_depthBufferID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glNamedFramebufferTexture(m_frameBufferID, GL_DEPTH_ATTACHMENT, m_depthBufferID, 0);
+	glNamedFramebufferTexture(m_geometry_fboID, GL_DEPTH_ATTACHMENT, m_depthBufferID, 0);
 
-	const GLenum drawBuffers[] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
+	const GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
 
-	glNamedFramebufferDrawBuffers(m_frameBufferID, 2, drawBuffers);
+	glNamedFramebufferDrawBuffers(m_geometry_fboID, 2, drawBuffers);
 
 	// Completeness check
-	GLenum status = glCheckNamedFramebufferStatus(m_frameBufferID, GL_FRAMEBUFFER);
+	GLenum status = glCheckNamedFramebufferStatus(m_geometry_fboID, GL_FRAMEBUFFER);
 	if (status != GL_FRAMEBUFFER_COMPLETE)
 	{
 		switch (status) {
@@ -202,11 +246,97 @@ void CMyApp::InitFBOResources( int width, int height )
 	}
 }
 
-void CMyApp::CleanFBOResources()
+void CMyApp::CleanGeometryFBO()
 {
-	glDeleteTextures(1, &m_depthBufferID);
 	glDeleteTextures(1, &m_diffuseBufferID);
 	glDeleteTextures(1, &m_normalBufferID);
+	glDeleteTextures(1, &m_depthBufferID);
+}
+
+void CMyApp::InitAccumFBO(int width, int height)
+{
+	// Setup one high resolution color channel
+	glCreateTextures(GL_TEXTURE_2D, 1, &m_accumColorBufferID);
+	glTextureStorage2D(m_accumColorBufferID, 1, GL_RGBA32F, width, height);
+	glTextureParameteri(m_accumColorBufferID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTextureParameteri(m_accumColorBufferID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glNamedFramebufferTexture(m_accum_fboID, GL_COLOR_ATTACHMENT0, m_accumColorBufferID, 0);
+
+
+	const GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0};
+
+	glNamedFramebufferDrawBuffers(m_accum_fboID, 1, drawBuffers);
+	// Completeness check
+	GLenum status = glCheckNamedFramebufferStatus(m_accum_fboID, GL_FRAMEBUFFER);
+	if (status != GL_FRAMEBUFFER_COMPLETE)
+	{
+		switch (status) {
+		case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT!");
+			break;
+		case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT!");
+			break;
+		case GL_FRAMEBUFFER_UNSUPPORTED:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_UNSUPPORTED!");
+			break;
+		}
+	}
+}
+
+void CMyApp::CleanAccumFBO()
+{
+	glDeleteTextures(1, &m_accumColorBufferID);
+}
+
+void CMyApp::InitLightPassFBO(int width, int height)
+{
+	// Setup one high resolution color channel
+	glCreateTextures(GL_TEXTURE_2D, 1, &m_lightPassColorBufferID);
+	glTextureStorage2D(m_lightPassColorBufferID, 1, GL_RGBA32F, width, height);
+	glTextureParameteri(m_lightPassColorBufferID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTextureParameteri(m_lightPassColorBufferID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glNamedFramebufferTexture(m_light_pass_fboID, GL_COLOR_ATTACHMENT0, m_lightPassColorBufferID, 0);
+
+	const GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0 };
+
+	glNamedFramebufferDrawBuffers(m_light_pass_fboID, 1, drawBuffers);
+
+	// Completeness check
+	GLenum status = glCheckNamedFramebufferStatus(m_light_pass_fboID, GL_FRAMEBUFFER);
+	if (status != GL_FRAMEBUFFER_COMPLETE)
+	{
+		switch (status) {
+		case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT!");
+			break;
+		case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT!");
+			break;
+		case GL_FRAMEBUFFER_UNSUPPORTED:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_UNSUPPORTED!");
+			break;
+		}
+	}
+}	
+
+void CMyApp::CleanLightPassFBO()
+{
+	glDeleteTextures(1, &m_lightPassColorBufferID);
+}
+
+void CMyApp::InitFBOResources(int width, int height)
+{
+	InitGeometryFBO(width, height);
+	InitAccumFBO(width, height);
+	InitLightPassFBO(width, height);
+}
+
+void CMyApp::CleanFBOResources()
+{
+	CleanGeometryFBO();
+	CleanAccumFBO();
+	CleanLightPassFBO();
 }
 
 bool CMyApp::Init()
@@ -222,7 +352,7 @@ bool CMyApp::Init()
 	InitLightSources();
 	InitMaterials();
 	InitTextures();
-	InitFrameBufferObject();
+	InitFrameBufferObjects();
 
 	//
 	// Other
@@ -249,13 +379,18 @@ void CMyApp::Clean()
 	CleanGeometry();
 	CleanTextures();
 	CleanFBOResources();
-	CleanFrameBufferObject();
+	CleanFrameBufferObjects();
 }
 
 void CMyApp::Update(const SUpdateInfo& updateInfo)
 {
 	m_cameraManipulator.Update(updateInfo.DeltaTimeInSec);
+
+	// Objects stay frozen when the time is frozen
+	if (m_TimeFrozen) return;
+
     m_ElapsedTimeInSec = updateInfo.ElapsedTimeInSec;
+	m_DeltaTimeInSec = updateInfo.DeltaTimeInSec;
 
 	// Spin point lights
 	for (size_t i = 0; i < m_lightSources.size(); ++i)
@@ -269,15 +404,12 @@ void CMyApp::Update(const SUpdateInfo& updateInfo)
 			m_lightSources[i].m_Ld = { abs(cos(angle)), abs(sin(angle)), abs(cos(angle + 1.0f)) };
 		}
 	}
-
+	m_birdWorldTransform *= glm::rotate<float>(m_DeltaTimeInSec, glm::vec3(0,0,1));
 }
 
 void CMyApp::RenderGeometry(GLenum primitiveType)
 {
-	glBindTextureUnit( 0, m_metalTextureID );
-	glBindSampler( 0, m_SamplerID );
-
-
+	glBindSampler(0, m_SamplerID);
 	glBindVertexArray(m_Suzanne.vaoID);
 
 	if (primitiveType == GL_PATCHES)
@@ -286,10 +418,43 @@ void CMyApp::RenderGeometry(GLenum primitiveType)
 	}
 
 	// Suzanne
+	glBindTextureUnit(0, m_metalTextureID);
+
 	const glm::mat4& suzanneWorld = m_suzanneWorldTransform;
     glUniformMatrix4fv( ul( "world" ), 1, GL_FALSE, glm::value_ptr( suzanneWorld ) );
     glUniformMatrix4fv( ul( "worldIT" ), 1, GL_FALSE, glm::value_ptr( glm::transpose( glm::inverse( suzanneWorld ) ) ) );
     glDrawElements( primitiveType, m_Suzanne.count, GL_UNSIGNED_INT, 0 );
+
+	// Bird
+	glBindVertexArray(m_Bird.vaoID);
+	glBindTextureUnit(0, m_birdTextureID);
+
+	const glm::mat4 birdWorld = m_birdWorldTransform;
+	glUniformMatrix4fv(ul("world"), 1, GL_FALSE, glm::value_ptr(birdWorld));
+	glUniformMatrix4fv(ul("worldIT"), 1, GL_FALSE, glm::value_ptr(glm::transpose(glm::inverse(birdWorld))));
+	glDrawElements(primitiveType, m_Bird.count, GL_UNSIGNED_INT, 0);
+
+	// Wall
+	glBindVertexArray(m_Wall.vaoID);
+	glBindTextureUnit(0, m_wallTextureID);
+
+	for (int i = 0; i < 3; ++i)
+	{
+		const glm::mat4 wallWorld = glm::translate(glm::vec3(i*7, -5, -10)) * glm::scale(glm::vec3(1, 1, 1));
+		glUniformMatrix4fv(ul("world"), 1, GL_FALSE, glm::value_ptr(wallWorld));
+		glUniformMatrix4fv(ul("worldIT"), 1, GL_FALSE, glm::value_ptr(glm::transpose(glm::inverse(wallWorld))));
+		glDrawElements(primitiveType, m_Wall.count, GL_UNSIGNED_INT, 0);
+	}
+
+	// Mirror
+	glBindVertexArray(m_Mirror.vaoID);
+	glBindTextureUnit(0, 0); 
+
+	const glm::mat4 mirrorWorld = glm::translate(glm::vec3(0, -5, 0)) * glm::scale(glm::vec3(0.125, 0.3, 0.065));
+	glUniformMatrix4fv(ul("world"), 1, GL_FALSE, glm::value_ptr(mirrorWorld));
+	glUniformMatrix4fv(ul("worldIT"), 1, GL_FALSE, glm::value_ptr(glm::transpose(glm::inverse(mirrorWorld))));
+	glDrawElements(primitiveType, m_Mirror.count, GL_UNSIGNED_INT, 0);
+
 }
 
 void CMyApp::DrawAxes()
@@ -305,15 +470,61 @@ void CMyApp::DrawAxes()
 	glUseProgram(0);
 }
 
+glm::mat4 CMyApp::GetRandOffsetProj(const glm::mat4& projection)
+{
+	// Random offset between [0, 1) for x and y
+	float randX = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+	float randY = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+	
+	glm::mat4 jitter = glm::translate(glm::vec3(randX / m_render_w, randY / m_render_h, 0.0f));
+	return jitter * projection;
+}
+
+
 void CMyApp::Render()
 {
+
 	//
-	// Render geometry into framebuffer
+	// 0. Setup 
 	//
 
-	glBindFramebuffer(GL_FRAMEBUFFER, m_frameBufferID);
+	// reset state machine for good measure yay opengl
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
+
+	glm::mat4 proj = m_camera.GetProj();
+	glm::mat4 view = m_camera.GetViewMatrix();
+
+	// Check if camera has changed and reset accumulation if necessary
+	bool cameraChanged = (m_lastTickView != view);
+	m_lastTickView = view;
+
+	if (!m_TimeFrozen || cameraChanged) {
+		m_AccumulationFrameCounter = 0;
+	}
+
+	// If time is frozen and camera hasn't changed, we can accumulate frames
+	if (m_TimeFrozen && !cameraChanged) {
+		m_AccumulationFrameCounter++;
+
+		proj = GetRandOffsetProj(proj);
+	}
+	else {
+		m_AccumulationFrameCounter = 1;
+	}
+
+	glm::mat4 VP = proj * view;
+	glm::mat4 invVP = glm::inverse(VP);
+
+	//
+	// 1. Render geometry into G-buffer
+	//
+
+	glViewport(0, 0, m_render_w, m_render_h);
+
+	glBindFramebuffer(GL_FRAMEBUFFER, m_geometry_fboID);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
 
 	// Wireframe mode
 	if (m_wireframe_enable) glDisable(GL_CULL_FACE);
@@ -321,57 +532,56 @@ void CMyApp::Render()
 	glPolygonMode(GL_FRONT, m_wireframe_enable ? GL_LINE : GL_FILL);
 	glPolygonMode(GL_BACK, m_wireframe_enable ? GL_LINE : GL_FILL);
 
-
 	glUseProgram(m_geom_pass_programID);
+
 	// Set uniforms for the geometry pass
 	SetUniforms(
 		"textureImage", 0,
-		"tess_level", m_tess_level,
-		"VP", m_camera.GetViewProj(),
-		"invVP", glm::inverse(m_camera.GetViewProj()),
+		"m_max_tess_level", m_max_tess_level,
+		"m_min_tess_dist", m_min_tess_dist,
+		"m_max_tess_dist", m_max_tess_dist,
+		"VP", VP,
+		"invVP", invVP,
 		"m_cameraPos", m_camera.GetEye()
-		);
+	);
 
 	RenderGeometry(GL_PATCHES);
 
 	//
-	// Draw a full-screen quad and stretch the image rendered before as texture
+	// 2. Lighting pass
 	//
 
-	// Step back to default FBO- (=backbuffer)
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glBindFramebuffer(GL_FRAMEBUFFER, m_light_pass_fboID);
+
+	glClearColor(0.125f, 0.25f, 0.5f, 1.0f);
 
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	glDisable(GL_DEPTH_TEST);
-
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
 	glUseProgram(m_deferred_pass_programID);
 	SetUniforms(
-		"VP", m_camera.GetViewProj(),
-		"invVP", glm::inverse(m_camera.GetViewProj()),
+		"VP", VP,
+		"invVP", invVP,
 		"m_cameraPos", m_camera.GetEye()
 	);
 
+	glBindVertexArray(m_emptyVAO);
 
-	glBindVertexArray( m_emptyVAO );
-
-	glBindTextureUnit( 0, m_diffuseBufferID);
-	glBindTextureUnit( 1, m_normalBufferID);
-	glBindTextureUnit( 2, m_depthBufferID);
-	glBindSampler( 0, m_SamplerID );
+	// Input channels from G-buffer
+	glBindTextureUnit(0, m_diffuseBufferID);
+	glBindTextureUnit(1, m_normalBufferID);
+	glBindTextureUnit(2, m_depthBufferID);
+	glBindSampler(0, 0);
 
 	// Accumulate light sources in backbuffer
 	glEnable(GL_BLEND);
 	glBlendEquation(GL_FUNC_ADD);
 	glDepthMask(GL_FALSE);
 
-
 	bool first = true;
-
 	for (auto& light : m_lightSources)
 	{
-		// First light overwrites the backbuffer, the others are added to it
+		// First light overwrites the backbuffer, the others are added to it 
 		if (first)
 		{
 			glBlendFunc(GL_ONE, GL_ZERO);
@@ -388,18 +598,82 @@ void CMyApp::Render()
 		// Draw a full-screen quad
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 	}
-
+	
+	// turn off blending
 	glDisable(GL_BLEND);
+	glDepthMask(GL_TRUE);
+	glEnable(GL_DEPTH_TEST);
+
+	//
+	// 3. Accumulation pass
+	//
+
+	// Copy the light pass result to the accumulation buffer
+	// important: we don't clear the previous frame, because we want to accumulate the frames
+	glBindFramebuffer(GL_FRAMEBUFFER, m_accum_fboID);
+
+	glDisable(GL_DEPTH_TEST);
+	glDepthMask(GL_FALSE);
+	glEnable(GL_BLEND);
+	glBlendEquation(GL_FUNC_ADD);
+
+	float w = 1.0f / static_cast<float>(m_AccumulationFrameCounter);
+	glBlendColor(w, w, w, 1.0f);
+
+	glBlendFunc(GL_CONSTANT_COLOR, GL_ONE_MINUS_CONSTANT_COLOR);
+
+	// Draw this frame's light pass result to the accumulation buffer
+
+	glUseProgram(m_postprocess_programID);
+	glBindTextureUnit(0, m_lightPassColorBufferID);
+	SetUniforms("channel_c0", 0);
+	glBindVertexArray(m_emptyVAO);
+
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	
+
+	// turn off blending
 	glEnable(GL_DEPTH_TEST);
 	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
+
+
+
+	//
+	// 4. Postprocess pass
+	//
+
+	// Draw the final image to the default framebuffer (screen)
+	// We draw from the accumulation buffer onto backbuffer
+
+	glViewport(0, 0, m_w, m_h);
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glDisable(GL_DEPTH_TEST);
+
+	glUseProgram(m_postprocess_programID);
+
+	// Input channel is the light pass color buffer, bind others to 0
+	glBindTextureUnit(0, m_accumColorBufferID);
+	glBindTextureUnit(1, 0);
+	glBindTextureUnit(2, 0);
+
+	SetUniforms("channel_c0", 0);
+
+	glBindVertexArray(m_emptyVAO);
+
+	// Draw full-screen quad
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
 	// Clean up buffers
 	glBindSampler( 0, 0 );
 	glUseProgram(0);
 	glBindVertexArray(0);
 
-
-	DrawAxes();
+	// unused
+	//DrawAxes();
 }
 
 void CMyApp::RenderGUI()
@@ -410,16 +684,14 @@ void CMyApp::RenderGUI()
 	ImGui::SetNextWindowSize(ImVec2(455, 60), ImGuiCond_FirstUseEver);
 	if (ImGui::Begin("ImGui example"))
 	{
-		ImGui::Checkbox("Enable wireframe mode?", &m_wireframe_enable);
-
 		if (ImGui::CollapsingHeader("Options"))
 		{
-			/*static float refresh_time = 0.1f;
+			static float refresh_time = 0.1f;
 			static float timer = 0;
 			static int   frameCount = 0;
 			static float fps = 0;
 
-			timer += static_cast<float>(m_delt);
+			timer += static_cast<float>(m_DeltaTimeInSec);
 			++frameCount;
 			if (timer > refresh_time) {
 				fps = frameCount / timer;
@@ -429,9 +701,27 @@ void CMyApp::RenderGUI()
 			ImGui::Text("FPS: %d", static_cast<int>(fps));
 
 			ImGui::SliderFloat("Refresh time", &refresh_time, 0.01f, 1.0f);
-			ImGui::Separator();*/
-			ImGui::SliderFloat("Tess level", &m_tess_level, 0.01f, 10.0f);
+			ImGui::SliderFloat("Rendering resolution", &m_renderResolution, 0.1f, 1.0f);
 		}
+
+
+		if (ImGui::CollapsingHeader("Tessellation"))
+		{
+			ImGui::Checkbox("Enable wireframe mode?", &m_wireframe_enable);
+			ImGui::Separator();
+			ImGui::SliderFloat("Max Tessellation level", &m_max_tess_level, 0.0f, 16.0f);
+			ImGui::SliderFloat("Min Tessellation distance", &m_min_tess_dist, 0.1f, m_max_tess_dist);
+			ImGui::SliderFloat("Max Tessellation distance", &m_max_tess_dist, 1.0f, 100.0f);
+		}
+
+		if (ImGui::CollapsingHeader("Time"))
+		{
+			ImGui::Checkbox("Freeze time?", &m_TimeFrozen);
+			ImGui::Text("Elapsed time: %.2f sec", m_ElapsedTimeInSec);
+			ImGui::Text("Delta time: %.5f sec", m_DeltaTimeInSec);
+			ImGui::Text("Accumulated frames: %d", m_AccumulationFrameCounter);
+		}
+
 	} //window
 	ImGui::End();
 }
@@ -495,13 +785,16 @@ void CMyApp::MouseWheel(const SDL_MouseWheelEvent& wheel)
 // New window size
 void CMyApp::Resize(int _w, int _h)
 {
-	glViewport(0, 0, _w, _h);
+	m_w = _w;
+	m_h = _h;
+
+	m_render_w = std::max(1, (int)(_w * m_renderResolution));
+	m_render_h = std::max(1, (int)(_h * m_renderResolution));
+
 	m_camera.SetAspect(static_cast<float>(_w) / _h);
 
-	// When we resize we need to remake the framebuffer with the new size,
-	// because now we want the two framebuffer (default,ours) to be the same resolution
-    CleanFBOResources();
-	InitFBOResources(_w, _h);
+	CleanFBOResources();
+	InitFBOResources(m_render_w, m_render_h);
 }
 
 // Other SDL events

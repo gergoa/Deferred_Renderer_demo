@@ -23,6 +23,6 @@ void main()
 {
 	gl_Position = vec4( vs_in_pos, 1 );
 	vs_out.position  = (world   * vec4(vs_in_pos,  1)).xyz;
-	vs_out.normal = (worldIT * vec4(vs_in_norm, 0)).xyz;
+	vs_out.normal = normalize((worldIT * vec4(vs_in_norm, 0)).xyz);
 	vs_out.uv = vs_in_uv;
 }

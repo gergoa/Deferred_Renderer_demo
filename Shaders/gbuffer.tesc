@@ -2,9 +2,6 @@
 
 layout(vertices = 6) out;
 
-const float MAX_TESS = 16.0;
-const float MIN_DIST = 0.5;
-const float MAX_DIST = 5.0;
 
 
 in block
@@ -21,17 +18,24 @@ out block
 	vec2 uv;
 } Out[];
 
-uniform float tess_level = 32.0;
+uniform float m_max_tess_level = 16.0;
+uniform float m_min_tess_dist = 0.5;
+uniform float m_max_tess_dist = 100.0;
+
 uniform vec3 m_cameraPos;
 
 
 float GetTessLevel(float d)
 {
-	float p = clamp((d - MIN_DIST) / (MAX_DIST - MIN_DIST), 0.0, 1.0);
+	float p = clamp((d - m_min_tess_dist) / (m_max_tess_dist - m_min_tess_dist), 0.0, 1.0);
 	float factor = clamp(1.0 - p, 0.0, 1.0);
 
-	return mix(1.0, MAX_TESS, factor);
+	return mix(1.0, m_max_tess_level, factor);
 }
+
+
+// a PN-háromszög egy négyzetes változatát alkalmazzuk
+// https://ogldev.org/www/tutorial31/tutorial31.html
 
 void main()
 {
@@ -49,9 +53,9 @@ void main()
 		float e1 = (d0 + d2) * 0.5;
 		float e2 = (d0 + d1) * 0.5;
 
-		float t0 = GetTessLevel(d0);
-		float t1 = GetTessLevel(d1);
-		float t2 = GetTessLevel(d2);
+		float t0 = GetTessLevel(e0);
+		float t1 = GetTessLevel(e1);
+		float t2 = GetTessLevel(e2);
 
 		gl_TessLevelInner[0] = max(t0, max(t1, t2));
 
@@ -69,18 +73,20 @@ void main()
 		int prev = (gl_InvocationID-1)/2;
 		int next = (gl_InvocationID+1)/2 % 3;
 		vec3 a = In[prev].position;
-		vec3 n = In[prev].normal;
+		vec3 n = normalize(In[prev].normal);
 		vec2 t = In[prev].uv;
 		vec3 b = In[next].position;
-		vec3 m = In[next].normal;
+		vec3 m = normalize(In[next].normal);
 		vec2 s = In[next].uv;
 
 		vec3 mid_ab = 0.5 * (a+b);
 		vec3 mid_nm = normalize(n+m);
 
-
-		Out[gl_InvocationID].position = mid_ab + mid_nm * distance(a,b) * 0.155;
-		Out[gl_InvocationID].normal = normalize(mix(n,m,0.5));
+		float projA = dot(b-a, n);
+		float projB = dot(a-b, m);
+		
+		Out[gl_InvocationID].position = mid_ab - 0.38 * (projA * n + projB * m);
+		Out[gl_InvocationID].normal = normalize(n + m);
 		Out[gl_InvocationID].uv = 0.5*(t+s);
 	}
 }

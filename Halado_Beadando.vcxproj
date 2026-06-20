@@ -91,7 +91,9 @@
     <ClCompile Include="MyApp.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <Image Include="Assets\Bird_v1.jpg" />
     <Image Include="Assets\metal.png" />
+    <Image Include="Assets\wall.jpg" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="Assets\Suzanne.obj" />
@@ -108,11 +110,27 @@
   <ItemGroup>
     <None Include="Shaders\deferred.frag" />
     <None Include="Shaders\Frag_PosCol.frag" />
+    <None Include="Shaders\postprocess.frag" />
     <None Include="Shaders\gbuffer.tesc" />
     <None Include="Shaders\gbuffer.tese" />
     <None Include="Shaders\Vert_axes.vert" />
     <None Include="Shaders\fullscreen.vert" />
     <None Include="Shaders\gbuffer.vert" />
     <None Include="Shaders\gbuffer.frag" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="Assets\Bird_v1.obj">
+      <FileType>Document</FileType>
+    </Text>
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="Assets\Wall.obj">
+      <FileType>Document</FileType>
+    </Text>
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="Assets\Mirror.obj">
+      <FileType>Document</FileType>
+    </Text>
   </ItemGroup>
 </Project>

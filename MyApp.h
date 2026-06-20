@@ -68,9 +68,23 @@ protected:
 	//
 	// Variables
 	//
-	float m_ElapsedTimeInSec = 0.0f;
+	int m_w, m_h; // Window size
+	int m_render_w;
+	int m_render_h;
+	float m_renderResolution = 1.0f;
 
-	glm::mat4 m_suzanneWorldTransform = glm::translate<float>(glm::vec3(0,0,0)) * glm::scale(glm::vec3(2,2,2));
+	float m_ElapsedTimeInSec = 0.0f;
+	float m_DeltaTimeInSec = 0.0f;
+	bool m_TimeFrozen = false;
+
+	// Frame accumulation
+	int m_AccumulationFrameCounter = 0;
+	glm::mat4 m_lastTickView = glm::mat4(1.0f);
+	glm::mat4 GetRandOffsetProj(const glm::mat4& projection);
+
+
+	glm::mat4 m_suzanneWorldTransform = glm::translate<float>(glm::vec3(0,0,0)) * glm::scale(glm::vec3(2));
+	glm::mat4 m_birdWorldTransform = glm::translate(glm::vec3(10, 0, 0)) * glm::rotate<float>(glm::radians(-90.0f), glm::vec3(1, 0, 0)) * glm::scale(glm::vec3(0.13f));
 
 	// Camera
 	Camera m_camera;
@@ -86,7 +100,8 @@ protected:
 	// Shader variables
 	GLuint m_geom_pass_programID = 0;			// Shader of the objects
 	GLuint m_programAxesID = 0;		// Program showing X,Y,Z directions
-	GLuint m_deferred_pass_programID = 0; // Postprocess program
+	GLuint m_deferred_pass_programID = 0; // Program for deferred shading pass
+	GLuint m_postprocess_programID = 0; // Postprocess program
 
 
 	// Light sources
@@ -122,6 +137,9 @@ protected:
 
 	// Geometry variables
 	OGLObject m_Suzanne = {};
+	OGLObject m_Bird = {};
+	OGLObject m_Wall = {};
+	OGLObject m_Mirror = {};
 
 	// Geometry initialization and termination
 	void InitGeometry();
@@ -131,6 +149,8 @@ protected:
 	GLuint m_SamplerID = 0;
 
 	GLuint m_metalTextureID = 0;
+	GLuint m_birdTextureID = 0;
+	GLuint m_wallTextureID = 0;
 
 
 	// Texture initialization and termination
@@ -139,17 +159,33 @@ protected:
 
 	// Tessellation
 	bool m_wireframe_enable = false;
-	float m_tess_level = 1.0f;
+	float m_min_tess_dist = 1.5f;
+	float m_max_tess_dist = 7.0f;
+	float m_max_tess_level = 8.0f;
 
-	// Framebuffer variables
-	GLuint m_frameBufferID = 0;
+	// Deferred Framebuffer variables
+	GLuint m_geometry_fboID = 0;
 	GLuint m_diffuseBufferID = 0;
 	GLuint m_normalBufferID = 0;
 	GLuint m_depthBufferID = 0;
+	void InitGeometryFBO(int, int);
+	void CleanGeometryFBO();
+
+	// Accumulation Framebuffer variables
+	GLuint m_accum_fboID = 0;
+	GLuint m_accumColorBufferID = 0;
+	void InitAccumFBO(int, int);
+	void CleanAccumFBO();
+
+	// Lighting pass framebuffer
+	GLuint m_light_pass_fboID = 0;
+	GLuint m_lightPassColorBufferID = 0;
+	void InitLightPassFBO(int, int);
+	void CleanLightPassFBO();
 
 	// Framebuffer initialization and termination
-	void InitFrameBufferObject();
-	void CleanFrameBufferObject();
+	void InitFrameBufferObjects();
+	void CleanFrameBufferObjects();
 	void InitFBOResources(int, int);
 	void CleanFBOResources();
 };
