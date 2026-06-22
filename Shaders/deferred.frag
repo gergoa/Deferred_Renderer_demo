@@ -9,6 +9,8 @@ layout (binding = 0) uniform sampler2D g_diffuse;
 layout (binding = 1) uniform sampler2D g_normal;
 layout (binding = 2) uniform sampler2D g_depth;
 
+uniform sampler2D ssaoTex;
+
 uniform vec3 m_cameraPos;
 uniform mat4 invVP;
 
@@ -20,8 +22,8 @@ uniform vec3 Ld = vec3(1.0, 1.0, 1.0 );
 uniform vec3 Ls = vec3(1.0, 1.0, 1.0 );
 
 uniform float lightConstantAttenuation    = 1.0;
-uniform float lightLinearAttenuation      = 0.06;
-uniform float lightQuadraticAttenuation   = 0.015;
+uniform float lightLinearAttenuation      = 0.075;
+uniform float lightQuadraticAttenuation   = 0.033;
 
 // anyag tulajdonságok 
 
@@ -85,7 +87,8 @@ vec3 lighting(LightProperties light, vec3 position, vec3 normal, MaterialPropert
 	
 	// Ambiens komponens 
 	// Ambiens fény mindenhol ugyanakkora 
-	vec3 Ambient = light.La * material.Ka;
+	float occlusion = texture(ssaoTex, vs_out_uv).r;
+	vec3 Ambient = light.La * material.Ka * occlusion;
 
 	// Diffúz komponens 
 	// A diffúz fényforrásból érkező fény mennyisége arányos a fényforrásba mutató vektor és a normálvektor skaláris szorzatával

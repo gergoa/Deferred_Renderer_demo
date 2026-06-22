@@ -113,6 +113,8 @@
     <None Include="Shaders\postprocess.frag" />
     <None Include="Shaders\gbuffer.tesc" />
     <None Include="Shaders\gbuffer.tese" />
+    <None Include="Shaders\ssao.frag" />
+    <None Include="Shaders\ssao_blur.frag" />
     <None Include="Shaders\Vert_axes.vert" />
     <None Include="Shaders\fullscreen.vert" />
     <None Include="Shaders\gbuffer.vert" />

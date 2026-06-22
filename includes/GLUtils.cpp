@@ -259,3 +259,10 @@ void SetUniform(const char* name, const glm::vec4& vector) {
 		glUniform4fv(location, 1, glm::value_ptr(vector));
 	}
 }
+
+void SetUniform(const char* name, const glm::vec2& vector) {
+	GLint location = ul(name);
+	if (location != -1) {
+		glUniform2fv(location, 1, glm::value_ptr(vector));
+	}
+}

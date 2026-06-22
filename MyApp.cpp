@@ -7,6 +7,8 @@
 #include <imgui.h>
 #include <algorithm>
 #include <iostream>
+#include <random>
+
 CMyApp::CMyApp()
 {
 }
@@ -51,6 +53,17 @@ void CMyApp::InitShaders()
 		.ShaderStage(GL_FRAGMENT_SHADER, "Shaders/postprocess.frag")
 		.Link();
 
+	m_ssao_programID = glCreateProgram();
+	ProgramBuilder{ m_ssao_programID }
+		.ShaderStage(GL_VERTEX_SHADER, "Shaders/fullscreen.vert")
+		.ShaderStage(GL_FRAGMENT_SHADER, "Shaders/ssao.frag")
+		.Link();
+
+	m_ssao_blur_programID = glCreateProgram();
+	ProgramBuilder{ m_ssao_blur_programID }
+		.ShaderStage(GL_VERTEX_SHADER, "Shaders/fullscreen.vert")
+		.ShaderStage(GL_FRAGMENT_SHADER, "Shaders/ssao_blur.frag")
+		.Link();
 	InitAxesShader();
 }
 
@@ -58,6 +71,9 @@ void CMyApp::CleanShaders()
 {
 	glDeleteProgram(m_geom_pass_programID);
 	glDeleteProgram(m_deferred_pass_programID);
+	glDeleteProgram(m_postprocess_programID);
+	glDeleteProgram(m_ssao_programID);
+	glDeleteProgram(m_ssao_blur_programID);
 	CleanAxesShader();
 }
 
@@ -73,6 +89,69 @@ void CMyApp::InitAxesShader()
 void CMyApp::CleanAxesShader()
 {
 	glDeleteProgram(m_programAxesID);
+}
+
+// SSAO Helper methods
+float lerp(float a, float b, float f)
+{
+	return a + f * (b - a);
+}
+
+void GenSSAOKernel(std::vector<glm::vec3>& ssaoKernel, std::vector<glm::vec3>& ssaoNoise, const int samples, const int rotations)
+{
+	if (std::sqrt(rotations) * std::sqrt(rotations) != rotations) SDL_LogError(SDL_LOG_PRIORITY_ERROR, "[Init] Invalid Kernel Rotation size provided!");
+
+
+	ssaoKernel.clear();
+
+	std::uniform_real_distribution<float> randomFloats(0.0, 1.0); // random floats between [0.0, 1.0]
+	std::default_random_engine generator;
+	for (unsigned int i = 0; i < samples; ++i)
+	{
+		glm::vec3 sample(
+			randomFloats(generator) * 2.0 - 1.0,
+			randomFloats(generator) * 2.0 - 1.0,
+			randomFloats(generator)
+		);
+		sample = glm::normalize(sample);
+		sample *= randomFloats(generator);
+
+
+		float scale = (float)i / 64.0;
+		scale = lerp(0.1f, 1.0f, scale * scale);
+		sample *= scale;
+		ssaoKernel.push_back(sample);
+	}
+
+	ssaoNoise.clear();
+
+	for (int i = 0; i < rotations; ++i)
+	{
+		glm::vec3 noise(
+			randomFloats(generator) * 2.0 - 1.0,
+			randomFloats(generator) * 2.0 - 1.0,
+			0.0
+		);
+		ssaoNoise.push_back(noise);
+
+	}
+
+}
+
+void CMyApp::InitSSAO_Noise(const int kernelSize, const int rotations)
+{
+	// generate ssao kernel
+	int sizeTex = (int)std::sqrt(rotations);
+	GenSSAOKernel(m_ssaoKernel, m_ssaoNoise, kernelSize, rotations);
+
+	// bind to texture
+	glGenTextures(1, &m_ssao_noise_TextureID);
+	glBindTexture(GL_TEXTURE_2D, m_ssao_noise_TextureID);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, sizeTex, sizeTex, 0, GL_RGB, GL_FLOAT, &m_ssaoNoise[0]);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 }
 
 void CMyApp::InitGeometry()
@@ -127,10 +206,10 @@ void CMyApp::InitLightSources()
 	}
 
 	// Directional sunlight
-	m_lightSources.push_back({glm::vec4(1.0f, 1.0f, 0.0f, 0.0f),
-								glm::vec3(0.2f),
-								glm::vec3(0.5f),
-								glm::vec3(0.25f) });
+	m_lightSources.push_back({glm::vec4(0.0f, 1.0f, 1.0f, 0.0f),
+								glm::vec3(0.25f),
+								glm::vec3(0.0f),
+								glm::vec3(0.0f) });
 }
 
 
@@ -186,14 +265,19 @@ void CMyApp::InitFrameBufferObjects()
 	// FBO létrehozása
 	glCreateFramebuffers(1, &m_geometry_fboID);
 	glCreateFramebuffers(1, &m_accum_fboID);
-	glCreateFramebuffers(1, &m_light_pass_fboID);
+	glCreateFramebuffers(1, &m_final_light_fboID);
+	glCreateFramebuffers(1, &m_ssao_fboID);
+	glCreateFramebuffers(1, &m_ssao_blur_fboID);
 }
 
 void CMyApp::CleanFrameBufferObjects()
 {
 	glDeleteFramebuffers( 1, &m_geometry_fboID );
 	glDeleteFramebuffers(1, &m_accum_fboID);
-	glDeleteFramebuffers( 1, &m_light_pass_fboID );
+	glDeleteFramebuffers( 1, &m_final_light_fboID );
+	glDeleteFramebuffers(1, &m_ssao_fboID);
+	glDeleteFramebuffers(1, &m_ssao_blur_fboID);
+
 }
 
 void CMyApp::InitGeometryFBO(int width, int height)
@@ -256,11 +340,11 @@ void CMyApp::CleanGeometryFBO()
 void CMyApp::InitAccumFBO(int width, int height)
 {
 	// Setup one high resolution color channel
-	glCreateTextures(GL_TEXTURE_2D, 1, &m_accumColorBufferID);
-	glTextureStorage2D(m_accumColorBufferID, 1, GL_RGBA32F, width, height);
-	glTextureParameteri(m_accumColorBufferID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTextureParameteri(m_accumColorBufferID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glNamedFramebufferTexture(m_accum_fboID, GL_COLOR_ATTACHMENT0, m_accumColorBufferID, 0);
+	glCreateTextures(GL_TEXTURE_2D, 1, &m_accum_colorBufferID);
+	glTextureStorage2D(m_accum_colorBufferID, 1, GL_RGBA32F, width, height);
+	glTextureParameteri(m_accum_colorBufferID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTextureParameteri(m_accum_colorBufferID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glNamedFramebufferTexture(m_accum_fboID, GL_COLOR_ATTACHMENT0, m_accum_colorBufferID, 0);
 
 
 	const GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0};
@@ -286,24 +370,86 @@ void CMyApp::InitAccumFBO(int width, int height)
 
 void CMyApp::CleanAccumFBO()
 {
-	glDeleteTextures(1, &m_accumColorBufferID);
+	glDeleteTextures(1, &m_accum_colorBufferID);
 }
+
+void CMyApp::InitSSAO_FBO(int width, int height)
+{
+
+	// SSAO depth buffer
+	glCreateTextures(GL_TEXTURE_2D, 1, &m_ssao_colorBufferID);
+	glTextureStorage2D(m_ssao_colorBufferID, 1, GL_R16, width, height);
+	glTextureParameteri(m_ssao_colorBufferID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTextureParameteri(m_ssao_colorBufferID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+	glNamedFramebufferTexture(m_ssao_fboID, GL_COLOR_ATTACHMENT0, m_ssao_colorBufferID, 0);
+	const GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0 };
+	glNamedFramebufferDrawBuffers(m_ssao_fboID, 1, drawBuffers);
+	// Completeness check
+	GLenum status = glCheckNamedFramebufferStatus(m_ssao_fboID, GL_FRAMEBUFFER);
+	if (status != GL_FRAMEBUFFER_COMPLETE)
+	{
+		switch (status) {
+		case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT!");
+			break;
+		case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT!");
+			break;
+		case GL_FRAMEBUFFER_UNSUPPORTED:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_UNSUPPORTED!");
+			break;
+		}
+	}
+
+	// SSAO blur buffer
+	glCreateTextures(GL_TEXTURE_2D, 1, &m_ssao_blur_colorBufferID);
+	glTextureStorage2D(m_ssao_blur_colorBufferID, 1, GL_R16, width, height);
+	glTextureParameteri(m_ssao_blur_colorBufferID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTextureParameteri(m_ssao_blur_colorBufferID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glNamedFramebufferTexture(m_ssao_blur_fboID, GL_COLOR_ATTACHMENT0, m_ssao_blur_colorBufferID, 0);
+	glNamedFramebufferDrawBuffers(m_ssao_blur_fboID, 1, drawBuffers);
+	// Completeness check
+	status = glCheckNamedFramebufferStatus(m_ssao_blur_fboID, GL_FRAMEBUFFER);
+	if (status != GL_FRAMEBUFFER_COMPLETE)
+	{
+		switch (status) {
+		case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT!");
+			break;
+		case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT!");
+			break;
+		case GL_FRAMEBUFFER_UNSUPPORTED:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_UNSUPPORTED!");
+			break;
+		}
+	}
+}
+
+void CMyApp::CleanSSAO_FBO()
+{
+	glDeleteTextures(1, &m_ssao_colorBufferID);
+	glDeleteTextures(1, &m_ssao_blur_colorBufferID);
+}
+
+
 
 void CMyApp::InitLightPassFBO(int width, int height)
 {
 	// Setup one high resolution color channel
-	glCreateTextures(GL_TEXTURE_2D, 1, &m_lightPassColorBufferID);
-	glTextureStorage2D(m_lightPassColorBufferID, 1, GL_RGBA32F, width, height);
-	glTextureParameteri(m_lightPassColorBufferID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTextureParameteri(m_lightPassColorBufferID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glNamedFramebufferTexture(m_light_pass_fboID, GL_COLOR_ATTACHMENT0, m_lightPassColorBufferID, 0);
+	glCreateTextures(GL_TEXTURE_2D, 1, &m_final_light_colorBufferID);
+	glTextureStorage2D(m_final_light_colorBufferID, 1, GL_RGBA32F, width, height);
+	glTextureParameteri(m_final_light_colorBufferID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTextureParameteri(m_final_light_colorBufferID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glNamedFramebufferTexture(m_final_light_fboID, GL_COLOR_ATTACHMENT0, m_final_light_colorBufferID, 0);
 
 	const GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0 };
 
-	glNamedFramebufferDrawBuffers(m_light_pass_fboID, 1, drawBuffers);
+	glNamedFramebufferDrawBuffers(m_final_light_fboID, 1, drawBuffers);
 
 	// Completeness check
-	GLenum status = glCheckNamedFramebufferStatus(m_light_pass_fboID, GL_FRAMEBUFFER);
+	GLenum status = glCheckNamedFramebufferStatus(m_final_light_fboID, GL_FRAMEBUFFER);
 	if (status != GL_FRAMEBUFFER_COMPLETE)
 	{
 		switch (status) {
@@ -322,13 +468,14 @@ void CMyApp::InitLightPassFBO(int width, int height)
 
 void CMyApp::CleanLightPassFBO()
 {
-	glDeleteTextures(1, &m_lightPassColorBufferID);
+	glDeleteTextures(1, &m_final_light_colorBufferID);
 }
 
 void CMyApp::InitFBOResources(int width, int height)
 {
 	InitGeometryFBO(width, height);
 	InitAccumFBO(width, height);
+	InitSSAO_FBO(width, height);
 	InitLightPassFBO(width, height);
 }
 
@@ -336,6 +483,7 @@ void CMyApp::CleanFBOResources()
 {
 	CleanGeometryFBO();
 	CleanAccumFBO();
+	CleanSSAO_FBO();
 	CleanLightPassFBO();
 }
 
@@ -346,6 +494,10 @@ bool CMyApp::Init()
 	// Set a bluish clear color
 	// glClear() will use this for clearing the color buffer.
 	glClearColor(0.125f, 0.25f, 0.5f, 1.0f);
+
+
+	// Init SSAO
+	InitSSAO_Noise(16, 16);
 
 	InitShaders();
 	InitGeometry();
@@ -405,6 +557,10 @@ void CMyApp::Update(const SUpdateInfo& updateInfo)
 		}
 	}
 	m_birdWorldTransform *= glm::rotate<float>(m_DeltaTimeInSec, glm::vec3(0,0,1));
+
+	m_materials[0] = {
+		glm::vec3(m_ambient), glm::vec3(m_diffuse), glm::vec3(m_specular), 20.0f
+	};
 }
 
 void CMyApp::RenderGeometry(GLenum primitiveType)
@@ -480,7 +636,6 @@ glm::mat4 CMyApp::GetRandOffsetProj(const glm::mat4& projection)
 	return jitter * projection;
 }
 
-
 void CMyApp::Render()
 {
 
@@ -547,11 +702,74 @@ void CMyApp::Render()
 
 	RenderGeometry(GL_PATCHES);
 
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	// TODO: SSAO Pass here
+
+	glBindFramebuffer(GL_FRAMEBUFFER, m_ssao_fboID);
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	glBindVertexArray(m_emptyVAO);
+
+	// Input channels from G-buffer + noise
+	glBindTextureUnit(0, m_depthBufferID);
+	glBindTextureUnit(1, m_normalBufferID);
+	glBindTextureUnit(2, m_ssao_noise_TextureID);
+
+	glUseProgram(m_ssao_programID);
+
+	SetUniforms(
+		"gDepth", 0,
+		"gNormal", 1,
+		"texNoise", 2,
+		"view", view,
+		"proj", proj,
+		"invProj", glm::inverse(proj),
+		"invVP", invVP,
+		"resolution", glm::vec2((float)m_render_w, (float)m_render_h)
+	);
+	glUniform3fv(ul("samples"), m_ssaoKernel.size(), (const GLfloat*)m_ssaoKernel.data());
+
+	glBindVertexArray(m_emptyVAO);
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	// SSAO Blur
+
+	glBindFramebuffer(GL_FRAMEBUFFER, m_ssao_blur_fboID);
+	glClear(GL_COLOR_BUFFER_BIT);
+	glDisable(GL_DEPTH_TEST);
+
+	glBindVertexArray(m_emptyVAO);
+
+	// Input channel is ssao
+	glBindTextureUnit(0, m_ssao_colorBufferID);
+
+	glUseProgram(m_ssao_blur_programID);
+
+	SetUniforms(
+		"ssaoTex", 0
+	);
+
+	glBindVertexArray(m_emptyVAO);
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
 	//
 	// 2. Lighting pass
 	//
 
-	glBindFramebuffer(GL_FRAMEBUFFER, m_light_pass_fboID);
+	glBindFramebuffer(GL_FRAMEBUFFER, m_final_light_fboID);
 
 	glClearColor(0.125f, 0.25f, 0.5f, 1.0f);
 
@@ -562,7 +780,8 @@ void CMyApp::Render()
 	SetUniforms(
 		"VP", VP,
 		"invVP", invVP,
-		"m_cameraPos", m_camera.GetEye()
+		"m_cameraPos", m_camera.GetEye(),
+		"ssaoTex", 3
 	);
 
 	glBindVertexArray(m_emptyVAO);
@@ -571,6 +790,8 @@ void CMyApp::Render()
 	glBindTextureUnit(0, m_diffuseBufferID);
 	glBindTextureUnit(1, m_normalBufferID);
 	glBindTextureUnit(2, m_depthBufferID);
+	glBindTextureUnit(3, m_ssao_blur_colorBufferID);
+	
 	glBindSampler(0, 0);
 
 	// Accumulate light sources in backbuffer
@@ -604,6 +825,8 @@ void CMyApp::Render()
 	glDepthMask(GL_TRUE);
 	glEnable(GL_DEPTH_TEST);
 
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
 	//
 	// 3. Accumulation pass
 	//
@@ -625,7 +848,7 @@ void CMyApp::Render()
 	// Draw this frame's light pass result to the accumulation buffer
 
 	glUseProgram(m_postprocess_programID);
-	glBindTextureUnit(0, m_lightPassColorBufferID);
+	glBindTextureUnit(0, m_final_light_colorBufferID);
 	SetUniforms("channel_c0", 0);
 	glBindVertexArray(m_emptyVAO);
 
@@ -637,6 +860,7 @@ void CMyApp::Render()
 	glDepthMask(GL_TRUE);
 	glDisable(GL_BLEND);
 
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 
 	//
@@ -656,7 +880,7 @@ void CMyApp::Render()
 	glUseProgram(m_postprocess_programID);
 
 	// Input channel is the light pass color buffer, bind others to 0
-	glBindTextureUnit(0, m_accumColorBufferID);
+	glBindTextureUnit(0, m_accum_colorBufferID);
 	glBindTextureUnit(1, 0);
 	glBindTextureUnit(2, 0);
 
@@ -722,6 +946,13 @@ void CMyApp::RenderGUI()
 			ImGui::Text("Accumulated frames: %d", m_AccumulationFrameCounter);
 		}
 
+		if (ImGui::CollapsingHeader("Lighting"))
+		{
+			ImGui::SliderFloat("Ambient Light", &m_ambient, 0.0f, 1.0f);
+			ImGui::SliderFloat("Diffuse Light", &m_diffuse, 0.0f, 1.0f);
+			ImGui::SliderFloat("Specular Light", &m_specular, 0.0f, 1.0f);
+
+		}
 	} //window
 	ImGui::End();
 }

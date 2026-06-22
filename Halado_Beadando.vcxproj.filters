@@ -24,6 +24,9 @@
     <Filter Include="Shaders\Deferred">
       <UniqueIdentifier>{255b1859-96be-413b-8d21-99b05ce39c11}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Shaders\SSAO">
+      <UniqueIdentifier>{6870dd52-b0cd-4018-aa9f-3706d2b7de33}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="includes\Camera.cpp">
@@ -126,6 +129,12 @@
     </None>
     <None Include="Shaders\postprocess.frag">
       <Filter>Shaders\Deferred</Filter>
+    </None>
+    <None Include="Shaders\ssao.frag">
+      <Filter>Shaders\SSAO</Filter>
+    </None>
+    <None Include="Shaders\ssao_blur.frag">
+      <Filter>Shaders\SSAO</Filter>
     </None>
   </ItemGroup>
 </Project>

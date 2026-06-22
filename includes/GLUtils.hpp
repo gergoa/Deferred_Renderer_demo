@@ -227,6 +227,7 @@ void SetUniform(const char* name, double value);
 void SetUniform(const char* name, int value);
 void SetUniform(const char* name, const glm::vec3& vector);
 void SetUniform(const char* name, const glm::vec4& vector);
+void SetUniform(const char* name, const glm::vec2& vector);
 
 // rekurzív template függvény a uniform értékek beállítására
 inline void SetUniforms() {}

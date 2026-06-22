@@ -83,8 +83,8 @@ protected:
 	glm::mat4 GetRandOffsetProj(const glm::mat4& projection);
 
 
-	glm::mat4 m_suzanneWorldTransform = glm::translate<float>(glm::vec3(0,0,0)) * glm::scale(glm::vec3(2));
-	glm::mat4 m_birdWorldTransform = glm::translate(glm::vec3(10, 0, 0)) * glm::rotate<float>(glm::radians(-90.0f), glm::vec3(1, 0, 0)) * glm::scale(glm::vec3(0.13f));
+	glm::mat4 m_suzanneWorldTransform = glm::translate<float>(glm::vec3(9,-4,-7.75)) * glm::scale(glm::vec3(2));
+	glm::mat4 m_birdWorldTransform = glm::translate(glm::vec3(0,0,0)) * glm::rotate<float>(glm::radians(-90.0f), glm::vec3(1, 0, 0)) * glm::scale(glm::vec3(0.07f));
 
 	// Camera
 	Camera m_camera;
@@ -102,10 +102,16 @@ protected:
 	GLuint m_programAxesID = 0;		// Program showing X,Y,Z directions
 	GLuint m_deferred_pass_programID = 0; // Program for deferred shading pass
 	GLuint m_postprocess_programID = 0; // Postprocess program
+	GLuint m_ssao_programID = 0;
+	GLuint m_ssao_blur_programID = 0;
 
 
 	// Light sources
 	std::vector<Light> m_lightSources;
+
+	float m_ambient = 1.0;
+	float m_diffuse = 1.0;
+	float m_specular = 1.0;
 
 	// Material properties
 	std::vector<Material> m_materials;
@@ -163,6 +169,11 @@ protected:
 	float m_max_tess_dist = 7.0f;
 	float m_max_tess_level = 8.0f;
 
+	// SSAO
+	std::vector<glm::vec3> m_ssaoKernel;
+	std::vector<glm::vec3> m_ssaoNoise;
+	
+
 	// Deferred Framebuffer variables
 	GLuint m_geometry_fboID = 0;
 	GLuint m_diffuseBufferID = 0;
@@ -173,13 +184,28 @@ protected:
 
 	// Accumulation Framebuffer variables
 	GLuint m_accum_fboID = 0;
-	GLuint m_accumColorBufferID = 0;
+	GLuint m_accum_colorBufferID = 0;
 	void InitAccumFBO(int, int);
 	void CleanAccumFBO();
 
+	// SSAO framebuffer variables
+	GLuint m_ssao_fboID = 0;
+	GLuint m_ssao_colorBufferID = 0;
+
+	GLuint m_ssao_blur_fboID = 0;
+	GLuint m_ssao_blur_colorBufferID = 0;
+
+	GLuint m_ssao_noise_TextureID = 0;
+
+	void InitSSAO_Noise(const int, const int);
+
+	void InitSSAO_FBO(const int,const int);
+	void CleanSSAO_FBO();
+
+
 	// Lighting pass framebuffer
-	GLuint m_light_pass_fboID = 0;
-	GLuint m_lightPassColorBufferID = 0;
+	GLuint m_final_light_fboID = 0;
+	GLuint m_final_light_colorBufferID = 0;
 	void InitLightPassFBO(int, int);
 	void CleanLightPassFBO();
 
