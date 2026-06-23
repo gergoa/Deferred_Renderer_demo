@@ -64,6 +64,13 @@ void CMyApp::InitShaders()
 		.ShaderStage(GL_VERTEX_SHADER, "Shaders/fullscreen.vert")
 		.ShaderStage(GL_FRAGMENT_SHADER, "Shaders/ssao_blur.frag")
 		.Link();
+
+	m_ssr_programID = glCreateProgram();
+	ProgramBuilder{ m_ssr_programID }
+		.ShaderStage(GL_VERTEX_SHADER, "Shaders/fullscreen.vert")
+		.ShaderStage(GL_FRAGMENT_SHADER, "Shaders/ssr.frag")
+		.Link();
+
 	InitAxesShader();
 }
 
@@ -97,7 +104,7 @@ float lerp(float a, float b, float f)
 	return a + f * (b - a);
 }
 
-void GenSSAOKernel(std::vector<glm::vec3>& ssaoKernel, std::vector<glm::vec3>& ssaoNoise, const int samples, const int rotations)
+void GenSSAOKernel(std::vector<glm::vec3>& ssaoKernel, std::vector<glm::vec3>& ssaoNoise, const unsigned int samples, const unsigned int rotations)
 {
 	if (std::sqrt(rotations) * std::sqrt(rotations) != rotations) SDL_LogError(SDL_LOG_PRIORITY_ERROR, "[Init] Invalid Kernel Rotation size provided!");
 
@@ -166,28 +173,72 @@ void CMyApp::InitGeometry()
 	glCreateVertexArrays(1, &m_emptyVAO);
 
 	// Suzanne
-	MeshObject<Vertex> suzanneMeshCPU = ObjParser::parse("Assets/Suzanne.obj");
-	m_Suzanne = CreateGLObjectFromMesh(suzanneMeshCPU, vertexAttribList);
-
-	// Bird
-	MeshObject<Vertex> birdMeshCPU = ObjParser::parse("Assets/Bird_v1.obj");
-	m_Bird = CreateGLObjectFromMesh(birdMeshCPU, vertexAttribList);
-
-	// Wall
-	MeshObject<Vertex> wallMeshCPU = ObjParser::parse("Assets/Wall.obj");
-	m_Wall = CreateGLObjectFromMesh(wallMeshCPU, vertexAttribList);
+	m_sceneObjects.push_back(CreateObject(
+		"Assets/Suzanne.obj",
+		vertexAttribList,
+		"Assets/metal.png",
+		m_defaultMat,
+		glm::translate(glm::vec3(9, -4, -7.75f)) * glm::scale(glm::vec3(2)),
+		0.0f
+	));
 
 	// Mirror
-	MeshObject<Vertex> mirrorMeshCPU = ObjParser::parse("Assets/Mirror.obj");
-	m_Mirror = CreateGLObjectFromMesh(mirrorMeshCPU, vertexAttribList);
+	m_sceneObjects.push_back(CreateObject(
+		"Assets/Mirror.obj",
+		vertexAttribList,
+		"",
+		m_defaultMat,
+		glm::translate(glm::vec3(0, -6.5, 0)) * glm::scale(glm::vec3(0.335, 0.3, 0.085)),
+		1.0f
+	));
+
+	// Bird
+	m_sceneObjects.push_back(CreateObject(
+		"Assets/Bird_v1.obj", 
+		vertexAttribList,
+		"Assets/bird_v1.jpg",
+		m_defaultMat,
+		m_birdWorldTransform,
+		0.0f
+	));
+
+	// Wall, load tex manually
+	const std::string wallTex = "Assets/wall.jpg";
+	ImageRGBA image = ImageFromFile(wallTex);
+
+	if (image.width > 0 && image.height > 0)
+	{
+		glCreateTextures(GL_TEXTURE_2D, 1, &m_wallTexID);
+		glTextureStorage2D(m_wallTexID, NumberOfMIPLevels(image), GL_RGBA8, image.width, image.height);
+		glTextureSubImage2D(m_wallTexID, 0, 0, 0, image.width, image.height, GL_RGBA, GL_UNSIGNED_BYTE, image.data());
+
+		glGenerateTextureMipmap(m_wallTexID);
+	}
+	else
+	{
+		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failure to load texture: %s", wallTex);
+	}
+
+	for (int i = 0; i < 4; ++i) {
+		m_sceneObjects.push_back(CreateObject(
+			"Assets/Wall.obj",
+			vertexAttribList, 
+			m_wallTexID,
+			m_defaultMat,
+			glm::translate(glm::vec3(i * 9.75, -5, -10)) * glm::scale(glm::vec3(1)),
+			0.35f
+		));
+	}
 }
 
 void CMyApp::CleanGeometry()
 {
-	CleanOGLObject(m_Suzanne);
-	CleanOGLObject(m_Bird);
-	CleanOGLObject(m_Wall);
-	CleanOGLObject(m_Mirror);
+	for (auto& obj : m_sceneObjects)
+	{
+		CleanOGLObject(obj.m_mesh);
+	}
+
+	m_sceneObjects.clear();
 	glDeleteVertexArrays(1, &m_emptyVAO);
 }
 
@@ -215,7 +266,7 @@ void CMyApp::InitLightSources()
 
 void CMyApp::InitMaterials()
 {
-	m_materials.push_back({ glm::vec3(1.0f), glm::vec3(1.0f), glm::vec3(1.0f), 20.0f });
+	//m_materials.push_back({ glm::vec3(1.0f), glm::vec3(1.0f), glm::vec3(1.0f), 20.0f });
 }
 
 void CMyApp::InitTextures()
@@ -225,37 +276,14 @@ void CMyApp::InitTextures()
 	glSamplerParameteri( m_SamplerID, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
 	glSamplerParameteri( m_SamplerID, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR );
 	glSamplerParameteri( m_SamplerID, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-
-	ImageRGBA metalImage = ImageFromFile( "Assets/metal.png" );
-
-	glCreateTextures( GL_TEXTURE_2D, 1, &m_metalTextureID );
-	glTextureStorage2D( m_metalTextureID, NumberOfMIPLevels( metalImage ), GL_RGBA8, metalImage.width, metalImage.height );
-	glTextureSubImage2D( m_metalTextureID, 0, 0, 0, metalImage.width, metalImage.height, GL_RGBA, GL_UNSIGNED_BYTE, metalImage.data() );
-
-	glGenerateTextureMipmap( m_metalTextureID );
-
-
-	ImageRGBA birdImage = ImageFromFile("Assets/Bird_v1.jpg");
-
-	glCreateTextures(GL_TEXTURE_2D, 1, &m_birdTextureID);
-	glTextureStorage2D(m_birdTextureID, NumberOfMIPLevels(birdImage), GL_RGBA8, birdImage.width, birdImage.height);
-	glTextureSubImage2D(m_birdTextureID, 0, 0, 0, birdImage.width, birdImage.height, GL_RGBA, GL_UNSIGNED_BYTE, birdImage.data());
-
-	glGenerateTextureMipmap(m_birdTextureID);
-
-
-	ImageRGBA wallImage = ImageFromFile("Assets/wall.jpg");
-	glCreateTextures(GL_TEXTURE_2D, 1, &m_wallTextureID);
-	glTextureStorage2D(m_wallTextureID, NumberOfMIPLevels(wallImage), GL_RGBA8, wallImage.width, wallImage.height);
-	glTextureSubImage2D(m_wallTextureID, 0, 0, 0, wallImage.width, wallImage.height, GL_RGBA, GL_UNSIGNED_BYTE, wallImage.data());
-	glGenerateTextureMipmap(m_wallTextureID);
 }
 
 void CMyApp::CleanTextures()
 {
-	glDeleteTextures(1, &m_metalTextureID);
-	glDeleteTextures(1, &m_birdTextureID);
-	glDeleteTextures(1, &m_wallTextureID);
+	for (auto& obj : m_sceneObjects)
+	{
+		glDeleteTextures(1, &obj.m_textureID);
+	}
 
 	glDeleteSamplers( 1, &m_SamplerID );
 }
@@ -265,18 +293,20 @@ void CMyApp::InitFrameBufferObjects()
 	// FBO létrehozása
 	glCreateFramebuffers(1, &m_geometry_fboID);
 	glCreateFramebuffers(1, &m_accum_fboID);
-	glCreateFramebuffers(1, &m_final_light_fboID);
+	glCreateFramebuffers(1, &m_deferred_light_fboID);
 	glCreateFramebuffers(1, &m_ssao_fboID);
 	glCreateFramebuffers(1, &m_ssao_blur_fboID);
+	glCreateFramebuffers(1, &m_ssr_fboID);
 }
 
 void CMyApp::CleanFrameBufferObjects()
 {
-	glDeleteFramebuffers( 1, &m_geometry_fboID );
+	glDeleteFramebuffers(1, &m_geometry_fboID );
 	glDeleteFramebuffers(1, &m_accum_fboID);
-	glDeleteFramebuffers( 1, &m_final_light_fboID );
+	glDeleteFramebuffers(1, &m_deferred_light_fboID );
 	glDeleteFramebuffers(1, &m_ssao_fboID);
 	glDeleteFramebuffers(1, &m_ssao_blur_fboID);
+	glDeleteFramebuffers(1, &m_ssr_fboID);
 
 }
 
@@ -438,18 +468,18 @@ void CMyApp::CleanSSAO_FBO()
 void CMyApp::InitLightPassFBO(int width, int height)
 {
 	// Setup one high resolution color channel
-	glCreateTextures(GL_TEXTURE_2D, 1, &m_final_light_colorBufferID);
-	glTextureStorage2D(m_final_light_colorBufferID, 1, GL_RGBA32F, width, height);
-	glTextureParameteri(m_final_light_colorBufferID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTextureParameteri(m_final_light_colorBufferID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glNamedFramebufferTexture(m_final_light_fboID, GL_COLOR_ATTACHMENT0, m_final_light_colorBufferID, 0);
+	glCreateTextures(GL_TEXTURE_2D, 1, &m_deferred_light_colorBufferID);
+	glTextureStorage2D(m_deferred_light_colorBufferID, 1, GL_RGBA32F, width, height);
+	glTextureParameteri(m_deferred_light_colorBufferID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTextureParameteri(m_deferred_light_colorBufferID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glNamedFramebufferTexture(m_deferred_light_fboID, GL_COLOR_ATTACHMENT0, m_deferred_light_colorBufferID, 0);
 
 	const GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0 };
 
-	glNamedFramebufferDrawBuffers(m_final_light_fboID, 1, drawBuffers);
+	glNamedFramebufferDrawBuffers(m_deferred_light_fboID, 1, drawBuffers);
 
 	// Completeness check
-	GLenum status = glCheckNamedFramebufferStatus(m_final_light_fboID, GL_FRAMEBUFFER);
+	GLenum status = glCheckNamedFramebufferStatus(m_deferred_light_fboID, GL_FRAMEBUFFER);
 	if (status != GL_FRAMEBUFFER_COMPLETE)
 	{
 		switch (status) {
@@ -468,7 +498,42 @@ void CMyApp::InitLightPassFBO(int width, int height)
 
 void CMyApp::CleanLightPassFBO()
 {
-	glDeleteTextures(1, &m_final_light_colorBufferID);
+	glDeleteTextures(1, &m_deferred_light_colorBufferID);
+}
+
+void CMyApp::InitSSR_FBO(int width, int height)
+{
+	glCreateTextures(GL_TEXTURE_2D, 1, &m_ssr_colorBufferID);
+	glTextureStorage2D(m_ssr_colorBufferID, 1, GL_RGBA16F, width, height);
+	glTextureParameteri(m_ssr_colorBufferID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTextureParameteri(m_ssr_colorBufferID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glNamedFramebufferTexture(m_ssr_fboID, GL_COLOR_ATTACHMENT0, m_ssr_colorBufferID, 0);
+
+	const GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0 };
+
+	glNamedFramebufferDrawBuffers(m_ssr_fboID, 1, drawBuffers);
+
+	// Completeness check
+	GLenum status = glCheckNamedFramebufferStatus(m_ssr_fboID, GL_FRAMEBUFFER);
+	if (status != GL_FRAMEBUFFER_COMPLETE)
+	{
+		switch (status) {
+		case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT!");
+			break;
+		case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT!");
+			break;
+		case GL_FRAMEBUFFER_UNSUPPORTED:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_UNSUPPORTED!");
+			break;
+		}
+	}
+}
+
+void CMyApp::CleanSSR_FBO()
+{
+	glDeleteTextures(1, &m_ssr_fboID);
 }
 
 void CMyApp::InitFBOResources(int width, int height)
@@ -477,6 +542,7 @@ void CMyApp::InitFBOResources(int width, int height)
 	InitAccumFBO(width, height);
 	InitSSAO_FBO(width, height);
 	InitLightPassFBO(width, height);
+	InitSSR_FBO(width, height);
 }
 
 void CMyApp::CleanFBOResources()
@@ -485,6 +551,7 @@ void CMyApp::CleanFBOResources()
 	CleanAccumFBO();
 	CleanSSAO_FBO();
 	CleanLightPassFBO();
+	CleanSSR_FBO();
 }
 
 bool CMyApp::Init()
@@ -556,61 +623,22 @@ void CMyApp::Update(const SUpdateInfo& updateInfo)
 			m_lightSources[i].m_Ld = { abs(cos(angle)), abs(sin(angle)), abs(cos(angle + 1.0f)) };
 		}
 	}
-	m_birdWorldTransform *= glm::rotate<float>(m_DeltaTimeInSec, glm::vec3(0,0,1));
-
-	m_materials[0] = {
-		glm::vec3(m_ambient), glm::vec3(m_diffuse), glm::vec3(m_specular), 20.0f
-	};
+	m_sceneObjects[2].m_worldTransform *= glm::rotate<float>(m_DeltaTimeInSec, glm::vec3(0,0,1));
+	m_defaultMat = { glm::vec3(m_ambient), glm::vec3(m_diffuse), glm::vec3(m_specular), 16.0 };
 }
 
 void CMyApp::RenderGeometry(GLenum primitiveType)
 {
 	glBindSampler(0, m_SamplerID);
-	glBindVertexArray(m_Suzanne.vaoID);
 
-	if (primitiveType == GL_PATCHES)
-	{
+	if (primitiveType == GL_PATCHES) {
 		glPatchParameteri(GL_PATCH_VERTICES, 3);
 	}
 
-	// Suzanne
-	glBindTextureUnit(0, m_metalTextureID);
-
-	const glm::mat4& suzanneWorld = m_suzanneWorldTransform;
-    glUniformMatrix4fv( ul( "world" ), 1, GL_FALSE, glm::value_ptr( suzanneWorld ) );
-    glUniformMatrix4fv( ul( "worldIT" ), 1, GL_FALSE, glm::value_ptr( glm::transpose( glm::inverse( suzanneWorld ) ) ) );
-    glDrawElements( primitiveType, m_Suzanne.count, GL_UNSIGNED_INT, 0 );
-
-	// Bird
-	glBindVertexArray(m_Bird.vaoID);
-	glBindTextureUnit(0, m_birdTextureID);
-
-	const glm::mat4 birdWorld = m_birdWorldTransform;
-	glUniformMatrix4fv(ul("world"), 1, GL_FALSE, glm::value_ptr(birdWorld));
-	glUniformMatrix4fv(ul("worldIT"), 1, GL_FALSE, glm::value_ptr(glm::transpose(glm::inverse(birdWorld))));
-	glDrawElements(primitiveType, m_Bird.count, GL_UNSIGNED_INT, 0);
-
-	// Wall
-	glBindVertexArray(m_Wall.vaoID);
-	glBindTextureUnit(0, m_wallTextureID);
-
-	for (int i = 0; i < 3; ++i)
+	for (const RenderObject& obj : m_sceneObjects)
 	{
-		const glm::mat4 wallWorld = glm::translate(glm::vec3(i*7, -5, -10)) * glm::scale(glm::vec3(1, 1, 1));
-		glUniformMatrix4fv(ul("world"), 1, GL_FALSE, glm::value_ptr(wallWorld));
-		glUniformMatrix4fv(ul("worldIT"), 1, GL_FALSE, glm::value_ptr(glm::transpose(glm::inverse(wallWorld))));
-		glDrawElements(primitiveType, m_Wall.count, GL_UNSIGNED_INT, 0);
+		DrawObject(obj, primitiveType);
 	}
-
-	// Mirror
-	glBindVertexArray(m_Mirror.vaoID);
-	glBindTextureUnit(0, 0); 
-
-	const glm::mat4 mirrorWorld = glm::translate(glm::vec3(0, -5, 0)) * glm::scale(glm::vec3(0.125, 0.3, 0.065));
-	glUniformMatrix4fv(ul("world"), 1, GL_FALSE, glm::value_ptr(mirrorWorld));
-	glUniformMatrix4fv(ul("worldIT"), 1, GL_FALSE, glm::value_ptr(glm::transpose(glm::inverse(mirrorWorld))));
-	glDrawElements(primitiveType, m_Mirror.count, GL_UNSIGNED_INT, 0);
-
 }
 
 void CMyApp::DrawAxes()
@@ -704,7 +732,9 @@ void CMyApp::Render()
 
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-	// TODO: SSAO Pass here
+	//
+	// 2. Evaluate SSAO based on G-buffer depth values
+	//
 
 	glBindFramebuffer(GL_FRAMEBUFFER, m_ssao_fboID);
 	glClear(GL_COLOR_BUFFER_BIT);
@@ -766,10 +796,10 @@ void CMyApp::Render()
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 	//
-	// 2. Lighting pass
+	// 3. Lighting pass
 	//
 
-	glBindFramebuffer(GL_FRAMEBUFFER, m_final_light_fboID);
+	glBindFramebuffer(GL_FRAMEBUFFER, m_deferred_light_fboID);
 
 	glClearColor(0.125f, 0.25f, 0.5f, 1.0f);
 
@@ -777,6 +807,7 @@ void CMyApp::Render()
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
 	glUseProgram(m_deferred_pass_programID);
+
 	SetUniforms(
 		"VP", VP,
 		"invVP", invVP,
@@ -814,7 +845,7 @@ void CMyApp::Render()
 		}
 
 		CMyApp::BindLightSource(light);
-		CMyApp::BindMaterial(m_materials[0]);
+		CMyApp::BindMaterial(m_defaultMat);
 
 		// Draw a full-screen quad
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -828,7 +859,40 @@ void CMyApp::Render()
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 	//
-	// 3. Accumulation pass
+	// 4. SSR Pass
+	//
+
+	glBindFramebuffer(GL_FRAMEBUFFER, m_ssr_fboID);
+	glClear(GL_COLOR_BUFFER_BIT);
+	glDisable(GL_DEPTH_TEST);
+
+	glUseProgram(m_ssr_programID);
+
+	// We will sample our reflectivity value from w coordinate of the diffuse buffer
+	glBindTextureUnit(0, m_diffuseBufferID);
+	glBindTextureUnit(1, m_normalBufferID);
+	glBindTextureUnit(2, m_depthBufferID);
+	glBindTextureUnit(3, m_deferred_light_colorBufferID);
+
+	SetUniforms(
+		"gDiffuse", 0,
+		"gNormal", 1,
+		"gDepth", 2,
+		"gLight", 3,
+		"proj", proj,
+		"view", view,
+		"invProj", glm::inverse(proj),
+		"invVP", invVP,
+		"resolution", glm::vec2((float)m_render_w, (float)m_render_h)
+	);;
+
+	glBindVertexArray(m_emptyVAO);
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	//
+	// 5. Accumulation pass
 	//
 
 	// Copy the light pass result to the accumulation buffer
@@ -848,7 +912,7 @@ void CMyApp::Render()
 	// Draw this frame's light pass result to the accumulation buffer
 
 	glUseProgram(m_postprocess_programID);
-	glBindTextureUnit(0, m_final_light_colorBufferID);
+	glBindTextureUnit(0, m_ssr_colorBufferID);
 	SetUniforms("channel_c0", 0);
 	glBindVertexArray(m_emptyVAO);
 
@@ -863,8 +927,9 @@ void CMyApp::Render()
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 
+
 	//
-	// 4. Postprocess pass
+	// 6. Postprocess pass
 	//
 
 	// Draw the final image to the default framebuffer (screen)
@@ -874,7 +939,7 @@ void CMyApp::Render()
 
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glClear(GL_COLOR_BUFFER_BIT);
 	glDisable(GL_DEPTH_TEST);
 
 	glUseProgram(m_postprocess_programID);

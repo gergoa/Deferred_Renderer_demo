@@ -7,6 +7,8 @@
 
 #include <SDL3_image/SDL_image.h>
 
+#include "ObjParser.h"
+
 /* 
 
  Az http://www.opengl-tutorial.org/ oldal alapján.
@@ -265,4 +267,56 @@ void SetUniform(const char* name, const glm::vec2& vector) {
 	if (location != -1) {
 		glUniform2fv(location, 1, glm::value_ptr(vector));
 	}
+}
+
+
+
+RenderObject CreateObject(
+	const std::string& fileName,
+	const std::initializer_list<VertexAttributeDescriptor>& descriptor,
+	GLuint textureID,
+	const Material& material,
+	glm::mat4 worldTransform,
+	float reflectivity)
+{
+	RenderObject obj;
+
+	MeshObject<Vertex> meshCPU = ObjParser::parse(fileName.c_str());
+	obj.m_mesh = CreateGLObjectFromMesh(meshCPU, descriptor);
+	obj.m_textureID = textureID;
+	obj.m_material = material;
+	obj.m_worldTransform = worldTransform;
+	obj.m_reflectivity = reflectivity;
+
+	return obj;
+};
+
+RenderObject CreateObject(
+	const std::string& fileName,
+	const std::initializer_list<VertexAttributeDescriptor>& descriptor,
+	const std::string& texName,
+	const Material& material,
+	glm::mat4 worldTransform,
+	float reflectivity)
+{
+	GLuint texID = 0;
+	if (!texName.empty())
+	{
+		ImageRGBA image = ImageFromFile(texName.c_str());
+
+		if (image.width > 0 && image.height > 0)
+		{
+			glCreateTextures(GL_TEXTURE_2D, 1, &texID);
+			glTextureStorage2D(texID, NumberOfMIPLevels(image), GL_RGBA8, image.width, image.height);
+			glTextureSubImage2D(texID, 0, 0, 0, image.width, image.height, GL_RGBA, GL_UNSIGNED_BYTE, image.data());
+
+			glGenerateTextureMipmap(texID);
+		}
+		else
+		{
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failure to load texture: %s", texName.c_str());
+		}
+	}
+
+	return CreateObject(fileName, descriptor, texID, material, worldTransform, reflectivity);
 }

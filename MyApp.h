@@ -23,22 +23,6 @@ struct SUpdateInfo
 	float DeltaTimeInSec = 0.0f;	// Elapsed time since last update
 };
 
-struct Light
-{
-	glm::vec4 m_lightPosition;
-	glm::vec3 m_La;
-	glm::vec3 m_Ld;
-	glm::vec3 m_Ls;
-};
-
-struct Material
-{
-	glm::vec3 m_Ka;
-	glm::vec3 m_Kd;
-	glm::vec3 m_Ks;
-	float m_shininess;
-};
-
 class CMyApp
 {
 public:
@@ -84,7 +68,7 @@ protected:
 
 
 	glm::mat4 m_suzanneWorldTransform = glm::translate<float>(glm::vec3(9,-4,-7.75)) * glm::scale(glm::vec3(2));
-	glm::mat4 m_birdWorldTransform = glm::translate(glm::vec3(0,0,0)) * glm::rotate<float>(glm::radians(-90.0f), glm::vec3(1, 0, 0)) * glm::scale(glm::vec3(0.07f));
+	glm::mat4 m_birdWorldTransform = glm::translate(glm::vec3(0,-4.22,0)) * glm::rotate<float>(glm::radians(-90.0f), glm::vec3(1, 0, 0)) * glm::scale(glm::vec3(0.07f));
 
 	// Camera
 	Camera m_camera;
@@ -104,7 +88,7 @@ protected:
 	GLuint m_postprocess_programID = 0; // Postprocess program
 	GLuint m_ssao_programID = 0;
 	GLuint m_ssao_blur_programID = 0;
-
+	GLuint m_ssr_programID = 0;
 
 	// Light sources
 	std::vector<Light> m_lightSources;
@@ -114,7 +98,7 @@ protected:
 	float m_specular = 1.0;
 
 	// Material properties
-	std::vector<Material> m_materials;
+	Material m_defaultMat = { glm::vec3(1.0), glm::vec3(1.0), glm::vec3(1.0), 16.0 };
 
 	void InitLightSources();
 	void InitMaterials();
@@ -142,22 +126,30 @@ protected:
 	void CleanAxesShader();
 
 	// Geometry variables
-	OGLObject m_Suzanne = {};
-	OGLObject m_Bird = {};
-	OGLObject m_Wall = {};
-	OGLObject m_Mirror = {};
+
+	std::vector<RenderObject> m_sceneObjects;
+	GLuint m_wallTexID = 0;
 
 	// Geometry initialization and termination
 	void InitGeometry();
 	void CleanGeometry();
 
+	void CMyApp::DrawObject(const RenderObject& obj, GLenum primitiveType)
+	{
+		// Bind VAO and texture
+		glBindVertexArray(obj.m_mesh.vaoID);
+		glBindTextureUnit(0, obj.m_textureID);
+
+		// Set uniforms
+		glUniformMatrix4fv(ul("world"), 1, GL_FALSE, glm::value_ptr(obj.m_worldTransform));
+		glUniformMatrix4fv(ul("worldIT"), 1, GL_FALSE, glm::value_ptr(glm::transpose(glm::inverse(obj.m_worldTransform))));
+		glUniform1f(ul("m_reflectivity"), obj.m_reflectivity);
+
+		glDrawElements(primitiveType, obj.m_mesh.count, GL_UNSIGNED_INT, 0);
+	}
+
 	// Texture variables
 	GLuint m_SamplerID = 0;
-
-	GLuint m_metalTextureID = 0;
-	GLuint m_birdTextureID = 0;
-	GLuint m_wallTextureID = 0;
-
 
 	// Texture initialization and termination
 	void InitTextures();
@@ -204,10 +196,15 @@ protected:
 
 
 	// Lighting pass framebuffer
-	GLuint m_final_light_fboID = 0;
-	GLuint m_final_light_colorBufferID = 0;
+	GLuint m_deferred_light_fboID = 0;
+	GLuint m_deferred_light_colorBufferID = 0;
 	void InitLightPassFBO(int, int);
 	void CleanLightPassFBO();
+
+	GLuint m_ssr_fboID = 0;
+	GLuint m_ssr_colorBufferID = 0;
+	void InitSSR_FBO(const int, const int);
+	void CleanSSR_FBO();
 
 	// Framebuffer initialization and termination
 	void InitFrameBufferObjects();

@@ -15,12 +15,13 @@ layout( location = 1 ) out vec4 fs_out_norm;
 
 // Uniform values
 uniform sampler2D textureImage;
+uniform float m_reflectivity = 0.0f;
 
 
 void main()
 {
 	vec4 fragColor = texture(textureImage, In.uv);
 
-	fs_out_diffuse = fragColor;
-	fs_out_norm = vec4(normalize(In.normal), 1.0) * 0.5 + 0.5;
+	fs_out_diffuse = vec4(fragColor.xyz, m_reflectivity);
+	fs_out_norm = vec4(normalize(In.normal), 1.0) * 0.5 + 0.5; // normal is in world space outgoing, in [0, 1] to avoid driver magic
 }

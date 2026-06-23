@@ -237,3 +237,44 @@ void SetUniforms(const char* name, const T& value, const Args&... args) {
     SetUniform(name, value);
     SetUniforms(args...);
 }
+
+struct Light
+{
+    glm::vec4 m_lightPosition;
+    glm::vec3 m_La;
+    glm::vec3 m_Ld;
+    glm::vec3 m_Ls;
+};
+
+struct Material
+{
+    glm::vec3 m_Ka;
+    glm::vec3 m_Kd;
+    glm::vec3 m_Ks;
+    float m_shininess;
+};
+
+struct RenderObject
+{
+    OGLObject m_mesh;
+    GLuint m_textureID = 0;
+    Material m_material;
+    glm::mat4 m_worldTransform = glm::mat4(1.0f);
+    float m_reflectivity = 0.0f; // [0,1] intervallumban
+};
+
+RenderObject CreateObject(
+    const std::string& fileName,
+    const std::initializer_list<VertexAttributeDescriptor>& descriptor,
+    const std::string& texName,
+    const Material& material,
+    glm::mat4 worldTransform,
+    float reflectivity);
+
+RenderObject CreateObject(
+    const std::string& fileName,
+    const std::initializer_list<VertexAttributeDescriptor>& descriptor,
+    GLuint textureID,
+    const Material& material,
+    glm::mat4 worldTransform,
+    float reflectivity);

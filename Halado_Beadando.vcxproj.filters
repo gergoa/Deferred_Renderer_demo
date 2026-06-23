@@ -27,6 +27,9 @@
     <Filter Include="Shaders\SSAO">
       <UniqueIdentifier>{6870dd52-b0cd-4018-aa9f-3706d2b7de33}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Shaders\SSR">
+      <UniqueIdentifier>{7d049b35-e4f4-4c3e-ad1e-a2204c0f50ee}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="includes\Camera.cpp">
@@ -135,6 +138,9 @@
     </None>
     <None Include="Shaders\ssao_blur.frag">
       <Filter>Shaders\SSAO</Filter>
+    </None>
+    <None Include="Shaders\ssr.frag">
+      <Filter>Shaders\SSR</Filter>
     </None>
   </ItemGroup>
 </Project>

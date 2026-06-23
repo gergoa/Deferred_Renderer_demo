@@ -125,7 +125,7 @@ void main()
 
 	// A fragment normálvektora 
 	// MINDIG normalizáljuk! 
-	vec3 normal = normalize( texture( g_normal, vs_out_uv).xyz * 2.0 - 1.0);
+	vec3 normal = normalize( texture( g_normal, vs_out_uv).xyz * 2.0 - 1.0); // normal has to be converted from [0, 1] back to [-1, 1] 
 	float depth = texture( g_depth, vs_out_uv).x;
 
 
