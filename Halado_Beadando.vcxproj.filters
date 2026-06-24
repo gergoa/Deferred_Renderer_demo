@@ -33,6 +33,9 @@
     <Filter Include="Shaders\ShadowMap">
       <UniqueIdentifier>{876157d6-6875-416f-b13a-30cb263d29c8}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Shaders\Portal">
+      <UniqueIdentifier>{1409ba84-0923-4292-8023-30e7b5be2c92}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="includes\Camera.cpp">
@@ -159,6 +162,12 @@
     </None>
     <None Include="Shaders\shadow_omni.frag">
       <Filter>Shaders\ShadowMap</Filter>
+    </None>
+    <None Include="Shaders\portal_forward.vert">
+      <Filter>Shaders\Portal</Filter>
+    </None>
+    <None Include="Shaders\portal_forward.frag">
+      <Filter>Shaders\Portal</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>

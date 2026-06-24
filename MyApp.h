@@ -86,6 +86,7 @@ protected:
 	int m_AccumulationFrameCounter = 0;
 	glm::mat4 m_lastTickView = glm::mat4(1.0f);
 	glm::mat4 GetRandOffsetProj(const glm::mat4& projection);
+	glm::mat4 GetPortalView(const glm::mat4& camView, const glm::mat4& srcPortal, const glm::mat4& dstPortal);
 
 
 	glm::mat4 m_suzanneWorldTransform = glm::translate<float>(glm::vec3(9,-4,-7.75)) * glm::scale(glm::vec3(2));
@@ -113,6 +114,7 @@ protected:
 	GLuint m_ssr_programID = 0;
 	GLuint m_shadow_dir_programID = 0;
 	GLuint m_shadow_omni_programID = 0;
+	GLuint m_portal_programID = 0;
 
 	// Light sources
 	std::vector<Light> m_lightSources;
@@ -176,6 +178,11 @@ protected:
 		glDrawElements(primitiveType, obj.m_mesh.count, GL_UNSIGNED_INT, 0);
 	}
 
+	void CMyApp::RenderPortal(
+		const glm::mat4& camView, const glm::mat4& camProj,
+		const RenderObject& srcPortal, const RenderObject& dstPortal,
+		GLuint targetFBO, int width, int height);
+
 	// Texture variables
 	GLuint m_SamplerID = 0;
 
@@ -233,6 +240,16 @@ protected:
 	GLuint m_ssr_colorBufferID = 0;
 	void InitSSR_FBO(const int, const int);
 	void CleanSSR_FBO();
+
+	GLuint m_bluePortalFBO = 0;
+	GLuint m_orangePortalFBO = 0;
+	GLuint m_bluePortalTexID = 0;
+	GLuint m_orangePortalTexID = 0;
+	GLuint m_bluePortalDepthID = 0;
+	GLuint m_orangePortalDepthID = 0;
+
+	void InitPortalFBO(const int, const int);
+	void CleanPortalFBO();
 
 	// Framebuffer initialization and termination
 	void InitFrameBufferObjects();

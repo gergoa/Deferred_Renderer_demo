@@ -84,6 +84,13 @@ void CMyApp::InitShaders()
 		.ShaderStage(GL_VERTEX_SHADER, "Shaders/shadow_omni.vert")
 		.ShaderStage(GL_FRAGMENT_SHADER, "Shaders/shadow_omni.frag")
 		.Link();
+
+	m_portal_programID = glCreateProgram();
+	ProgramBuilder{ m_portal_programID }
+		.ShaderStage(GL_VERTEX_SHADER, "Shaders/portal_forward.vert")
+		.ShaderStage(GL_FRAGMENT_SHADER, "Shaders/portal_forward.frag")
+		.Link();
+
 	InitAxesShader();
 }
 
@@ -95,6 +102,7 @@ void CMyApp::CleanShaders()
 	glDeleteProgram(m_ssao_programID);
 	glDeleteProgram(m_ssao_blur_programID);
 	glDeleteProgram(m_shadow_dir_programID);
+	glDeleteProgram(m_portal_programID);
 	CleanAxesShader();
 }
 
@@ -175,6 +183,32 @@ void CMyApp::InitSSAO_Noise(const int kernelSize, const int rotations)
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 }
 
+MeshObject<Vertex> createCube()
+{
+	MeshObject<Vertex> mesh;
+
+	mesh.vertexArray = {
+		// Elülső oldala 
+		{{-0.5f, -0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}}, // Bal lent 
+		{{0.5f, -0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},  // Jobb lent 
+		{{0.5f, 0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},   // Jobb fent 
+		{{-0.5f, 0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},  // Bal fent 
+
+		// Hátulsó oldala 
+		{{0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {0.0f, 0.0f}}, // Bal lent 
+		{{-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f}},// Jobb lent 
+		{{-0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {1.0f, 1.0f}}, // Jobb fent 
+		{{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f}},  // Bal fent 
+
+	};
+
+	mesh.indexArray = {// Elülső oldala 
+					   0, 1, 2, 2, 3, 0,
+					   // Hátulsó oldala 
+					   4, 5, 6, 6, 7, 4 };
+	return mesh;
+}
+
 void CMyApp::InitGeometry()
 {
 	const std::initializer_list<VertexAttributeDescriptor> vertexAttribList =
@@ -215,6 +249,8 @@ void CMyApp::InitGeometry()
 		m_birdWorldTransform,
 		0.0f
 	));
+
+
 	
 	// Wall, load tex manually
 	const std::string wallTex = "Assets/wall.jpg";
@@ -253,6 +289,28 @@ void CMyApp::InitGeometry()
 		glm::translate(glm::vec3(10, -15, 0)) * glm::scale(glm::vec3(0.1, 0.1, 0.1)) * glm::rotate<float>(glm::radians(-90.0), glm::vec3(1, 0, 0)),
 		0.25f
 	));
+
+	// Portals
+	m_sceneObjects.push_back(CreateObject(
+		"Assets/Mirror.obj",
+		vertexAttribList,
+		"",
+		m_defaultMat,
+		glm::scale(glm::vec3(0)),
+		0.0f
+	));
+	m_sceneObjects.back().m_mesh = CreateGLObjectFromMesh(createCube(), vertexAttribList);
+
+	//
+	m_sceneObjects.push_back(CreateObject(
+		"Assets/Mirror.obj",
+		vertexAttribList,
+		"",
+		m_defaultMat,
+		glm::scale(glm::vec3(0)),
+		0.0f
+	));
+	m_sceneObjects.back().m_mesh = CreateGLObjectFromMesh(createCube(), vertexAttribList);
 
 }
 
@@ -429,9 +487,13 @@ void CMyApp::InitFrameBufferObjects()
 	glCreateFramebuffers(1, &m_geometry_fboID);
 	glCreateFramebuffers(1, &m_accum_fboID);
 	glCreateFramebuffers(1, &m_deferred_light_fboID);
+
 	glCreateFramebuffers(1, &m_ssao_fboID);
 	glCreateFramebuffers(1, &m_ssao_blur_fboID);
 	glCreateFramebuffers(1, &m_ssr_fboID);
+
+	glCreateFramebuffers(1, &m_bluePortalFBO);
+	glCreateFramebuffers(1, &m_orangePortalFBO);
 }
 
 void CMyApp::CleanFrameBufferObjects()
@@ -439,9 +501,13 @@ void CMyApp::CleanFrameBufferObjects()
 	glDeleteFramebuffers(1, &m_geometry_fboID );
 	glDeleteFramebuffers(1, &m_accum_fboID);
 	glDeleteFramebuffers(1, &m_deferred_light_fboID );
+
 	glDeleteFramebuffers(1, &m_ssao_fboID);
 	glDeleteFramebuffers(1, &m_ssao_blur_fboID);
 	glDeleteFramebuffers(1, &m_ssr_fboID);
+
+	glDeleteFramebuffers(1, &m_bluePortalFBO);
+	glDeleteFramebuffers(1, &m_orangePortalFBO);
 
 }
 
@@ -671,6 +737,86 @@ void CMyApp::CleanSSR_FBO()
 	glDeleteTextures(1, &m_ssr_fboID);
 }
 
+void CMyApp::InitPortalFBO(const int width, const int height)
+{
+
+	// Blue
+	glCreateTextures(GL_TEXTURE_2D, 1, &m_bluePortalTexID);
+	glTextureStorage2D(m_bluePortalTexID, 1, GL_RGBA8, width, height);
+	glTextureParameteri(m_bluePortalTexID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTextureParameteri(m_bluePortalTexID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glNamedFramebufferTexture(m_bluePortalFBO, GL_COLOR_ATTACHMENT0, m_bluePortalTexID, 0);
+
+	// Depth
+	glCreateTextures(GL_TEXTURE_2D, 1, &m_bluePortalDepthID);
+	glTextureStorage2D(m_bluePortalDepthID, 1, GL_DEPTH_COMPONENT24, width, height);
+	glTextureParameteri(m_bluePortalDepthID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTextureParameteri(m_bluePortalDepthID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glNamedFramebufferTexture(m_bluePortalFBO, GL_DEPTH_ATTACHMENT, m_bluePortalDepthID, 0);
+
+	GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0 };
+
+	glNamedFramebufferDrawBuffers(m_bluePortalFBO, 1, drawBuffers);
+
+	// Completeness check
+	GLenum status = glCheckNamedFramebufferStatus(m_bluePortalFBO, GL_FRAMEBUFFER);
+	if (status != GL_FRAMEBUFFER_COMPLETE)
+	{
+		switch (status) {
+		case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT!");
+			break;
+		case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT!");
+			break;
+		case GL_FRAMEBUFFER_UNSUPPORTED:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_UNSUPPORTED!");
+			break;
+		}
+	}
+
+	// orange
+	glCreateTextures(GL_TEXTURE_2D, 1, &m_orangePortalTexID);
+	glTextureStorage2D(m_orangePortalTexID, 1, GL_RGBA8, width, height);
+	glTextureParameteri(m_orangePortalTexID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTextureParameteri(m_orangePortalTexID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glNamedFramebufferTexture(m_orangePortalFBO, GL_COLOR_ATTACHMENT0, m_orangePortalTexID, 0);
+
+	// Depth
+	glCreateTextures(GL_TEXTURE_2D, 1, &m_orangePortalDepthID);
+	glTextureStorage2D(m_orangePortalDepthID, 1, GL_DEPTH_COMPONENT24, width, height);
+	glTextureParameteri(m_orangePortalDepthID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTextureParameteri(m_orangePortalDepthID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glNamedFramebufferTexture(m_orangePortalFBO, GL_DEPTH_ATTACHMENT, m_orangePortalDepthID, 0);
+
+
+	glNamedFramebufferDrawBuffers(m_orangePortalFBO, 1, drawBuffers);
+
+	// Completeness check
+	status = glCheckNamedFramebufferStatus(m_orangePortalFBO, GL_FRAMEBUFFER);
+	if (status != GL_FRAMEBUFFER_COMPLETE)
+	{
+		switch (status) {
+		case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT!");
+			break;
+		case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT!");
+			break;
+		case GL_FRAMEBUFFER_UNSUPPORTED:
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_UNSUPPORTED!");
+			break;
+		}
+	}
+
+}
+
+void CMyApp::CleanPortalFBO()
+{
+	glDeleteTextures(1, &m_bluePortalTexID);
+	glDeleteTextures(1, &m_orangePortalTexID);
+}
+
 void CMyApp::InitFBOResources(int width, int height)
 {
 	InitGeometryFBO(width, height);
@@ -678,6 +824,7 @@ void CMyApp::InitFBOResources(int width, int height)
 	InitSSAO_FBO(width, height);
 	InitLightPassFBO(width, height);
 	InitSSR_FBO(width, height);
+	InitPortalFBO(width, height);
 }
 
 void CMyApp::CleanFBOResources()
@@ -687,6 +834,7 @@ void CMyApp::CleanFBOResources()
 	CleanSSAO_FBO();
 	CleanLightPassFBO();
 	CleanSSR_FBO();
+	CleanPortalFBO();
 }
 
 bool CMyApp::Init()
@@ -796,6 +944,91 @@ void CMyApp::DrawAxes()
 	glUseProgram(0);
 }
 
+glm::mat4 CMyApp::GetPortalView(const glm::mat4& camView, const glm::mat4& srcPortal, const glm::mat4& dstPortal)
+{
+	// camera view space -> world space
+	glm::mat4 camWorld = glm::inverse(camView);
+
+	
+	glm::mat4 camPosSrc = 
+		glm::rotate(glm::radians(180.0f), glm::vec3(0, 1, 0)) 
+		* glm::inverse(srcPortal) 
+		* camWorld;
+
+	// trasnform our camera to the destination portal's world position
+	glm::mat4 portalCamWorld = dstPortal * camPosSrc;
+
+	glm::mat4 transform = glm::inverse(portalCamWorld);
+	return transform;
+}
+
+glm::mat4 RemoveScale(glm::mat4 m)
+{
+	glm::vec3 pos = glm::vec3(m[3]);
+	glm::vec3 right = glm::normalize(glm::vec3(m[0]));
+	glm::vec3 up = glm::normalize(glm::vec3(m[1]));
+	glm::vec3 fwd = glm::normalize(glm::vec3(m[2]));
+
+	return glm::mat4(
+		glm::vec4(right, 0.0f),
+		glm::vec4(up, 0.0f),
+		glm::vec4(fwd, 0.0f),
+		glm::vec4(pos, 1.0f)
+	);
+}
+
+void CMyApp::RenderPortal(
+	const glm::mat4& camView, const glm::mat4& camProj,
+	const RenderObject& srcPortal, const RenderObject& dstPortal,
+	GLuint targetFBO, int width, int height)
+{
+
+	glm::mat4 srcNoScaling = RemoveScale(srcPortal.m_worldTransform);
+	glm::mat4 dstNoScaling = RemoveScale(dstPortal.m_worldTransform);
+
+
+	glm::mat4 virtualCamView = GetPortalView(camView, srcNoScaling, dstNoScaling);
+	glm::mat4 VP = camProj * virtualCamView;
+
+	glm::vec3 wPortalPos = glm::vec3(dstNoScaling[3]);
+	glm::vec3 wPortalNorm = glm::normalize(glm::vec3(dstNoScaling[2]));
+
+	// Ax + By + Cz + D = 0 -> D = -(Ax + By + Cz) = - dot(normal, pos)
+	float D = -glm::dot(wPortalNorm, wPortalPos) - 0.01f;
+	glm::vec4 clipPlane = glm::vec4(wPortalNorm, D);
+
+	RenderPassConfig portalPass = {};
+	portalPass.fboID = targetFBO;
+	portalPass.viewportWidth = width;
+	portalPass.viewportHeight = height;
+	portalPass.clearColor = true;
+	portalPass.clearDepth = true;
+	portalPass.depthTest = true;
+	portalPass.depthWrite = true;
+	portalPass.clearColorValue = glm::vec4(0.125f, 0.25f, 0.5f, 1.0f);
+
+	SetRenderPass(portalPass);
+	glUseProgram(m_portal_programID);
+	SetUniforms("VP", VP,
+				"clipPlane", clipPlane);
+
+	glEnable(GL_CLIP_DISTANCE0);
+
+	for (const auto& obj : m_sceneObjects)
+	{
+		// since we're drawing from the destination portal's perspective, don't draw destination portal's vertices
+		if (&obj == &dstPortal) continue;
+
+		glUniformMatrix4fv(ul("world"), 1, GL_FALSE, glm::value_ptr(obj.m_worldTransform));
+		glBindTextureUnit(0, obj.m_textureID);
+		glBindVertexArray(obj.m_mesh.vaoID);
+		glDrawElements(GL_TRIANGLES, obj.m_mesh.count, GL_UNSIGNED_INT, 0);
+	}
+
+	glDisable(GL_CLIP_DISTANCE0);
+
+}
+
 glm::mat4 CMyApp::GetRandOffsetProj(const glm::mat4& projection)
 {
 	// Random offset between [0, 1) for x and y
@@ -853,12 +1086,41 @@ void CMyApp::SetRenderPass(const RenderPassConfig& config)
 void CMyApp::Render()
 {
 
+
+
 	//
 	// 0. Setup 
 	//
 
 	glm::mat4 proj = m_camera.GetProj();
 	glm::mat4 view = m_camera.GetViewMatrix();
+
+
+
+	// Forward render the scene into portals' textures
+	int blueIdx = m_sceneObjects.size() - 2;
+	int orangeIdx = m_sceneObjects.size() - 1;
+
+	// check if portals are present
+	bool portalsActive = (
+		glm::length(glm::vec3(m_sceneObjects[blueIdx].m_worldTransform[0])) > 0.001f &&
+		glm::length(glm::vec3(m_sceneObjects[orangeIdx].m_worldTransform[0])) > 0.001f
+		);
+
+	if (portalsActive)
+	{
+		// render with into blue portal's texture
+		RenderPortal(view, proj, m_sceneObjects[blueIdx], m_sceneObjects[orangeIdx], m_bluePortalFBO, m_render_w, m_render_h);
+
+		// render with into orange portal's texture
+		RenderPortal(view, proj, m_sceneObjects[orangeIdx], m_sceneObjects[blueIdx], m_orangePortalFBO, m_render_w, m_render_h);
+
+		// just bind the textures
+		m_sceneObjects[blueIdx].m_textureID = m_bluePortalTexID;
+		m_sceneObjects[orangeIdx].m_textureID = m_orangePortalTexID;
+	}
+
+
 
 	// Check if camera has changed and reset accumulation if necessary
 	bool cameraChanged = (m_lastTickView != view);
@@ -1382,6 +1644,77 @@ void CMyApp::MouseMove(const SDL_MouseMotionEvent& mouse)
 
 void CMyApp::MouseDown(const SDL_MouseButtonEvent& mouse)
 {
+	if (mouse.button == SDL_BUTTON_LEFT || mouse.button == SDL_BUTTON_RIGHT)
+	{
+		
+		// Calculate clicked opengl (x,y) coordinates (sdl coordinate system's Y axis is inverted)
+		int gl_x = (int)(mouse.x * (m_render_w / (float)m_w));
+		int gl_y = m_render_h - 1 - (int)(mouse.y * (m_render_h / (float)m_h));
+		if (gl_x < 0 || gl_x >= m_render_w || gl_y < 0 || gl_y >= m_render_h) return;
+
+		// Bind to our geometry buffer and read data
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, m_geometry_fboID);
+		float depth = 1.0f;
+		glReadPixels(gl_x, gl_y, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
+
+		glReadBuffer(GL_COLOR_ATTACHMENT1);
+		glm::vec4 normal;
+		glReadPixels(gl_x, gl_y, 1, 1, GL_RGBA, GL_FLOAT, &normal);
+
+		glReadBuffer(GL_COLOR_ATTACHMENT0);
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+
+		// no portal placed if we didn't hit an object
+
+		if (depth >= 1.0f) {
+			return;
+		}
+
+
+		// screen space + depth -> ndc
+		glm::vec4 ndc = glm::vec4(
+			(gl_x / (float)m_render_w) * 2.0f - 1.0f,
+			(gl_y / (float)m_render_h) * 2.0f - 1.0f,
+			depth * 2.0f - 1.0f,
+			1.0f
+		);
+
+		// ndc -> world position
+		glm::mat4 invVP = glm::inverse(m_camera.GetProj() * m_camera.GetViewMatrix());
+		glm::vec4 wPos = invVP * ndc;
+		wPos /= wPos.w;
+
+		// [0,1] normal -> [-1, 1]
+		glm::vec3 wNormal = glm::normalize(glm::vec3(normal) * 2.0f - 1.0f);
+
+		glm::vec3 up = glm::vec3(0, 1, 0);
+		if (abs(glm::dot(wNormal, up)) > 0.99f) up = glm::vec3(0, 0, 1);
+		glm::vec3 right = glm::normalize(glm::cross(up, wNormal));
+
+		up = glm::cross(wNormal, right);
+
+		size_t bluePortalIdx = m_sceneObjects.size() - 2;
+		size_t orangePortalIdx = m_sceneObjects.size() - 1;
+
+		glm::mat4 basis(1.0f);
+		basis[0] = glm::vec4(right, 0.0f);
+		basis[1] = glm::vec4(up, 0.0f);
+		basis[2] = glm::vec4(wNormal, 0.0f);
+
+
+
+		if (mouse.button == SDL_BUTTON_LEFT) {
+			m_sceneObjects[bluePortalIdx].m_worldTransform = glm::translate(glm::vec3(wPos) + wNormal * 0.08f)
+				* basis
+				* glm::scale(glm::vec3(2.0f, 3.0f, 0.1f));
+		}
+		else if (mouse.button == SDL_BUTTON_RIGHT) {
+			m_sceneObjects[orangePortalIdx].m_worldTransform = glm::translate(glm::vec3(wPos) + wNormal * 0.08f)
+				* basis
+				* glm::scale(glm::vec3(2.0f, 3.0f, 0.1f));
+		}
+	
+	}
 }
 
 void CMyApp::MouseUp(const SDL_MouseButtonEvent& mouse)

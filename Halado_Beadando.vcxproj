@@ -111,6 +111,8 @@
   <ItemGroup>
     <None Include="Shaders\deferred.frag" />
     <None Include="Shaders\Frag_PosCol.frag" />
+    <None Include="Shaders\portal_forward.frag" />
+    <None Include="Shaders\portal_forward.vert" />
     <None Include="Shaders\postprocess.frag" />
     <None Include="Shaders\gbuffer.tesc" />
     <None Include="Shaders\gbuffer.tese" />
