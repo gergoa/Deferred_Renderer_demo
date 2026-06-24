@@ -1,9 +1,9 @@
 #version 430 core
 
-const int MAX_STEPS = 128;
-const int BINARY_STEPS = 12;
-const float STEP_SIZE = 0.066;
-const float EPSILON = 0.122;
+const int MAX_STEPS = 64;
+const int BINARY_STEPS = 4;
+const float STEP_SIZE = 0.1;
+const float EPSILON   = 0.21;
 
 in vec2 vs_out_uv;
 out vec4 fs_out_col;

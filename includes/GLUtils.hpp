@@ -229,7 +229,10 @@ void SetUniform(const char* name, const glm::vec3& vector);
 void SetUniform(const char* name, const glm::vec4& vector);
 void SetUniform(const char* name, const glm::vec2& vector);
 
+
 // rekurzív template függvény a uniform értékek beállítására
+// dummy template a rekurzív alapesetre
+template<typename = void>
 inline void SetUniforms() {}
 
 template<typename T, typename... Args>
@@ -238,13 +241,33 @@ void SetUniforms(const char* name, const T& value, const Args&... args) {
     SetUniforms(args...);
 }
 
+
+enum LightState {NOT_INITIALIZED, FBO_NOT_BOUND, INITIALIZED};
+
 struct Light
 {
-    glm::vec4 m_lightPosition;
+    LightState state = NOT_INITIALIZED;
+    glm::vec4 m_lightPosition; // .w koordináta mondja meg, irányfény-e, vagy pontfény
+
+    bool m_castShadow = false;
+    int m_shadowMapSize = 128;
+
+    // shadow map fbo
+    GLuint m_shadowFBO = 0;
+    GLuint m_shadowTexID = 0;
+
+    // irányfényekhez
+    int m_updateInterval = 6;
+    int m_currentTick = 0;
+
     glm::vec3 m_La;
     glm::vec3 m_Ld;
     glm::vec3 m_Ls;
+
+    glm::mat4 m_lightVP = glm::mat4(1.0f);
 };
+
+Light CreateLight(glm::vec3 pos, bool isPointLight, glm::vec3 La, glm::vec3 Ld, glm::vec3 Ls, bool castShadow = true, int shadowMapSize = 128, int interval = 6);
 
 struct Material
 {
@@ -261,6 +284,9 @@ struct RenderObject
     Material m_material;
     glm::mat4 m_worldTransform = glm::mat4(1.0f);
     float m_reflectivity = 0.0f; // [0,1] intervallumban
+
+    bool m_castShadow = true;
+    bool m_receiveShadow = true;
 };
 
 RenderObject CreateObject(

@@ -8,8 +8,9 @@ in vec2 vs_out_uv;
 layout (binding = 0) uniform sampler2D g_diffuse;
 layout (binding = 1) uniform sampler2D g_normal;
 layout (binding = 2) uniform sampler2D g_depth;
-
-uniform sampler2D ssaoTex;
+layout (binding = 3) uniform sampler2D ssaoTex;
+layout (binding = 4) uniform sampler2D shadowTex;
+layout (binding = 5) uniform samplerCube shadowCubeTex;
 
 uniform vec3 m_cameraPos;
 uniform mat4 invVP;
@@ -24,6 +25,15 @@ uniform vec3 Ls = vec3(1.0, 1.0, 1.0 );
 uniform float lightConstantAttenuation    = 1.0;
 uniform float lightLinearAttenuation      = 0.075;
 uniform float lightQuadraticAttenuation   = 0.033;
+
+uniform int isPointLight;
+uniform float z_far;
+
+// shadowmap tulajdonságok
+
+uniform int hasShadow = 0;
+uniform mat4 lightVP;
+
 
 // anyag tulajdonságok 
 
@@ -125,8 +135,10 @@ void main()
 
 	// A fragment normálvektora 
 	// MINDIG normalizáljuk! 
-	vec3 normal = normalize( texture( g_normal, vs_out_uv).xyz * 2.0 - 1.0); // normal has to be converted from [0, 1] back to [-1, 1] 
+	vec4 normalData = texture(g_normal, vs_out_uv);
+	vec3 normal = normalize(normalData.xyz * 2.0 - 1.0); // normal has to be converted from [0, 1] back to [-1, 1] 
 	float depth = texture( g_depth, vs_out_uv).x;
+	float shadowFlag = normalData.w;
 
 
 	// Nem árnyaljuk a hátteret
@@ -136,12 +148,73 @@ void main()
 
 	vec3 worldPos = getWorldPos(depth, vs_out_uv);
 
+	float shadow = 1.0;
+	if (hasShadow == 1)
+	{
+		// Directional light
+		if (isPointLight == 0)
+		{
+			// fragment world pos -> light NDC
+			vec4 lightNDC = lightVP * vec4(worldPos, 1.0);
+			lightNDC /= lightNDC.w;
+
+			// light NDC -> light uv space
+			vec3 nLightPos = lightNDC.xyz * 0.5 + 0.5;
+
+			// sample closest depth val from shadow map and where our fragment lies in light's view space
+			float closestDepth = texture(shadowTex, nLightPos.xy).r;
+			float fragDepth = nLightPos.z;
+
+			// to avoid shadow acne
+			vec3 lightDir = normalize(lightPosition.xyz - worldPos * lightPosition.w);
+			float bias = max(0.05 * (1.0 - dot(normal, lightDir)), 0.005);
+
+
+			float shadowAccum = 0.0;
+			vec2 texelSize = 1.0 / textureSize(shadowTex, 0);
+		
+			for(int x = -1; x <= 1; ++x)
+			{
+				for(int y = -1; y <= 1; ++y)
+				{
+					float pcfDepth = texture(shadowTex, nLightPos.xy + vec2(x, y) * texelSize).r; 
+				
+					shadowAccum += (fragDepth - bias > pcfDepth) ? 0.0 : 1.0;        
+				}    
+			}
+			shadow = shadowAccum / 9.0;
+
+			if(fragDepth > 1.0) shadow = 1.0;
+		}
+
+		// Point light
+		else 
+		{
+			vec3 toLight = worldPos - lightPosition.xyz;
+
+			// Get depth value from cubemap of our fragment
+			float lDepth = texture(shadowCubeTex, toLight).r;
+
+			// [0,1] -> world space;
+			lDepth *= z_far;
+
+			float fragDepth = length(toLight);
+			float bias = 0.1;
+
+			shadow = (fragDepth - bias > lDepth) ? 0.0 : 1.0;
+		}
+	}
+
+	if (shadowFlag < 1.0) {
+        shadow = 1.0;
+    }
+
 
 	LightProperties light;
 	light.pos = lightPosition;
 	light.La = La;
-	light.Ld = Ld;
-	light.Ls = Ls;
+	light.Ld = Ld * shadow;
+	light.Ls = Ls * shadow;
 	light.constantAttenuation = lightConstantAttenuation;
 	light.linearAttenuation = lightLinearAttenuation;
 	light.quadraticAttenuation = lightQuadraticAttenuation;

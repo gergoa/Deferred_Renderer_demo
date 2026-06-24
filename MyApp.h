@@ -23,6 +23,27 @@ struct SUpdateInfo
 	float DeltaTimeInSec = 0.0f;	// Elapsed time since last update
 };
 
+struct RenderPassConfig
+{
+	GLuint fboID = 0;              // FBO to render in (default is 0, screen)
+	GLuint programID = 0;          // used shader program
+
+	bool depthTest = false;
+	bool depthWrite = false;	   // for glDepthMask, whether we will be writing into the depth buffer
+
+	bool blend = false;
+	GLenum blendSrc = GL_ONE;
+	GLenum blendDst = GL_ZERO;
+	GLenum blendEquation = GL_FUNC_ADD;
+
+	bool clearColor = true;		  // Clear parameters at the beginning of the pass
+	bool clearDepth = false;
+	glm::vec4 clearColorValue = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+
+	int viewportWidth = 0;
+	int viewportHeight = 0;
+};
+
 class CMyApp
 {
 public:
@@ -79,6 +100,7 @@ protected:
 	//
 	GLuint m_emptyVAO = 0;
 
+	void SetRenderPass(const RenderPassConfig&);
 	void DrawAxes();
 
 	// Shader variables
@@ -89,6 +111,8 @@ protected:
 	GLuint m_ssao_programID = 0;
 	GLuint m_ssao_blur_programID = 0;
 	GLuint m_ssr_programID = 0;
+	GLuint m_shadow_dir_programID = 0;
+	GLuint m_shadow_omni_programID = 0;
 
 	// Light sources
 	std::vector<Light> m_lightSources;
@@ -99,6 +123,10 @@ protected:
 
 	// Material properties
 	Material m_defaultMat = { glm::vec3(1.0), glm::vec3(1.0), glm::vec3(1.0), 16.0 };
+
+	void InitLightFBO(Light& light);
+	void CleanLightFBO(Light& light);
+
 
 	void InitLightSources();
 	void InitMaterials();

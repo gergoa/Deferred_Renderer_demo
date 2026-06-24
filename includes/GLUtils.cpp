@@ -224,6 +224,31 @@ void CleanOGLObject( OGLObject& ObjectGPU )
 	ObjectGPU.vaoID = 0;
 }
 
+
+Light CreateLight(glm::vec3 pos, bool isPointLight, glm::vec3 La, glm::vec3 Ld, glm::vec3 Ls, bool castShadow, int shadowMapSize, int interval)
+{
+	Light light;
+
+	// .w koordináta mondja meg, irányfény-e, vagy pontfény
+	light.m_lightPosition = glm::vec4(pos, static_cast<float>(isPointLight));
+
+	light.m_castShadow = castShadow;
+	light.m_shadowMapSize = shadowMapSize;
+
+	light.m_shadowFBO = 0;
+	light.m_shadowTexID = 0;
+
+	light.m_updateInterval = interval;
+
+	light.m_La = La;
+	light.m_Ld = Ld;
+	light.m_Ls = Ls;
+
+	light.state = FBO_NOT_BOUND;
+
+	return light;
+}
+
 // Uniform értékek beállítása az aktív programban
 void SetUniform(const char* name, const glm::mat4& matrix) {
 	GLint location = ul(name);

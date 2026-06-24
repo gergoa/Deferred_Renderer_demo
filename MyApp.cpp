@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <iostream>
 #include <random>
+#include <string>
 
 CMyApp::CMyApp()
 {
@@ -71,6 +72,18 @@ void CMyApp::InitShaders()
 		.ShaderStage(GL_FRAGMENT_SHADER, "Shaders/ssr.frag")
 		.Link();
 
+
+	m_shadow_dir_programID = glCreateProgram();
+	ProgramBuilder{ m_shadow_dir_programID }
+		.ShaderStage(GL_VERTEX_SHADER, "Shaders/shadow.vert")
+		.ShaderStage(GL_FRAGMENT_SHADER, "Shaders/shadow.frag")
+		.Link();
+
+	m_shadow_omni_programID = glCreateProgram();
+	ProgramBuilder{ m_shadow_omni_programID }
+		.ShaderStage(GL_VERTEX_SHADER, "Shaders/shadow_omni.vert")
+		.ShaderStage(GL_FRAGMENT_SHADER, "Shaders/shadow_omni.frag")
+		.Link();
 	InitAxesShader();
 }
 
@@ -81,6 +94,7 @@ void CMyApp::CleanShaders()
 	glDeleteProgram(m_postprocess_programID);
 	glDeleteProgram(m_ssao_programID);
 	glDeleteProgram(m_ssao_blur_programID);
+	glDeleteProgram(m_shadow_dir_programID);
 	CleanAxesShader();
 }
 
@@ -124,7 +138,7 @@ void GenSSAOKernel(std::vector<glm::vec3>& ssaoKernel, std::vector<glm::vec3>& s
 		sample *= randomFloats(generator);
 
 
-		float scale = (float)i / 64.0;
+		float scale = (float)i / 64.0f;
 		scale = lerp(0.1f, 1.0f, scale * scale);
 		sample *= scale;
 		ssaoKernel.push_back(sample);
@@ -132,7 +146,7 @@ void GenSSAOKernel(std::vector<glm::vec3>& ssaoKernel, std::vector<glm::vec3>& s
 
 	ssaoNoise.clear();
 
-	for (int i = 0; i < rotations; ++i)
+	for (unsigned int i = 0; i < rotations; ++i)
 	{
 		glm::vec3 noise(
 			randomFloats(generator) * 2.0 - 1.0,
@@ -186,9 +200,9 @@ void CMyApp::InitGeometry()
 	m_sceneObjects.push_back(CreateObject(
 		"Assets/Mirror.obj",
 		vertexAttribList,
-		"",
+		"Assets/mirror.png",
 		m_defaultMat,
-		glm::translate(glm::vec3(0, -6.5, 0)) * glm::scale(glm::vec3(0.335, 0.3, 0.085)),
+		glm::translate(glm::vec3(0, -3.5, 0)) * glm::scale(glm::vec3(0.135, 0.3, 0.085)),
 		1.0f
 	));
 
@@ -229,6 +243,16 @@ void CMyApp::InitGeometry()
 			0.35f
 		));
 	}
+
+	/*// table
+	m_sceneObjects.push_back(CreateObject(
+		"Assets/table.obj",
+		vertexAttribList,
+		"Assets/table.jpg",
+		m_defaultMat,
+		glm::translate(glm::vec3(10, -15, 0)) * glm::scale(glm::vec3(0.1, 0.1, 0.1)) * glm::rotate<float>(glm::radians(-90.0), glm::vec3(1, 0, 0)),
+		0.0f
+	));*/
 }
 
 void CMyApp::CleanGeometry()
@@ -242,25 +266,132 @@ void CMyApp::CleanGeometry()
 	glDeleteVertexArrays(1, &m_emptyVAO);
 }
 
+void CMyApp::InitLightFBO(Light& light)
+{
+	if (light.state != FBO_NOT_BOUND) return;
+
+	// Directional light
+	if (light.m_lightPosition.w == 0.0f) 
+	{
+		glCreateFramebuffers(1, &light.m_shadowFBO);
+		// Simple depth buffer texture
+		glCreateTextures(GL_TEXTURE_2D, 1, &light.m_shadowTexID);
+		glTextureStorage2D(light.m_shadowTexID, 1, GL_DEPTH_COMPONENT24, light.m_shadowMapSize, light.m_shadowMapSize);
+
+		// https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping
+		// @ Oversampling, fragments outside the light's frustum will be sampled with incorrect depth values, when we read the depth buffer of light
+		glTextureParameteri(light.m_shadowTexID, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+		glTextureParameteri(light.m_shadowTexID, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+		const float borderColor[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		glTextureParameterfv(light.m_shadowTexID, GL_TEXTURE_BORDER_COLOR, borderColor);
+		glNamedFramebufferTexture(light.m_shadowFBO, GL_DEPTH_ATTACHMENT, light.m_shadowTexID, 0);
+
+		// no color attachments
+		glNamedFramebufferDrawBuffer(light.m_shadowFBO, GL_NONE);
+		glNamedFramebufferReadBuffer(light.m_shadowFBO, GL_NONE);
+
+		// Completeness check
+		GLenum status = glCheckNamedFramebufferStatus(light.m_shadowFBO, GL_FRAMEBUFFER);
+		if (status != GL_FRAMEBUFFER_COMPLETE)
+		{
+			switch (status) {
+			case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
+				SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT!");
+				break;
+			case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
+				SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT!");
+				break;
+			case GL_FRAMEBUFFER_UNSUPPORTED:
+				SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_UNSUPPORTED!");
+				break;
+			}
+		}
+		else light.state = INITIALIZED;
+	}
+	// Point light
+	else
+	{
+		glCreateFramebuffers(1, &light.m_shadowFBO);
+		// Simple depth buffer texture
+		glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &light.m_shadowTexID);
+		glTextureStorage2D(light.m_shadowTexID, 1, GL_DEPTH_COMPONENT24, light.m_shadowMapSize, light.m_shadowMapSize);
+		glTextureParameteri(light.m_shadowTexID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTextureParameteri(light.m_shadowTexID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTextureParameteri(light.m_shadowTexID, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTextureParameteri(light.m_shadowTexID, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTextureParameteri(light.m_shadowTexID, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+		
+		// At initialization we bind to cubemap's 
+		glNamedFramebufferTextureLayer(light.m_shadowFBO, GL_DEPTH_ATTACHMENT, light.m_shadowTexID, 0, 0);
+
+		// no color attachments
+		glNamedFramebufferDrawBuffer(light.m_shadowFBO, GL_NONE);
+		glNamedFramebufferReadBuffer(light.m_shadowFBO, GL_NONE);
+
+		// Completeness check
+		GLenum status = glCheckNamedFramebufferStatus(light.m_shadowFBO, GL_FRAMEBUFFER);
+
+		if (status != GL_FRAMEBUFFER_COMPLETE)
+		{
+			switch (status) {
+			case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
+				SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT!");
+				break;
+			case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
+				SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT!");
+				break;
+			case GL_FRAMEBUFFER_UNSUPPORTED:
+				SDL_LogError(SDL_LOG_CATEGORY_ERROR, "[InitFramebuffer] Incomplete framebuffer GL_FRAMEBUFFER_UNSUPPORTED!");
+				break;
+			}
+		}
+
+		else light.state = INITIALIZED;
+	}
+
+}
+
+void CMyApp::CleanLightFBO(Light& light)
+{
+	glDeleteFramebuffers(1, &light.m_shadowFBO);
+	glDeleteTextures(1, &light.m_shadowTexID);
+	light.state = NOT_INITIALIZED;
+}
+
+
 void CMyApp::InitLightSources()
 {
 	// Lights in a hexagonal shape
 	for (int i = 0; i < 6; ++i)
 	{
 		float angle = glm::radians(i * 60.0f);
-		float x = 6.0f * cos(angle);
-		float z = 6.0f * sin(angle);
-		m_lightSources.push_back({	glm::vec4(x, -2.0f, z, 1.0f), 
-									glm::vec3(0.0f), 
-									glm::vec3(abs(cos(angle)), abs(sin(angle)), abs(cos(angle + 1.0f))),
-									glm::vec3(0.0f) });
+		float x = 20.0f * cos(angle);
+		float z = 20.0f * sin(angle);
+		m_lightSources.push_back(
+			CreateLight(glm::vec3(x, 0.0f, z), 
+						true,
+						glm::vec3(0.0f),
+						glm::vec3(abs(cos(angle)), abs(sin(angle)), abs(cos(angle + 1.0f))),
+						glm::vec3(0.0f),
+						true, 1024, 18
+		));
 	}
 
 	// Directional sunlight
-	m_lightSources.push_back({glm::vec4(0.0f, 1.0f, 1.0f, 0.0f),
-								glm::vec3(0.25f),
-								glm::vec3(0.0f),
-								glm::vec3(0.0f) });
+	m_lightSources.push_back(
+		CreateLight(glm::vec3(0.0f, 1.0f, 1.0f),
+			false,
+			glm::vec3(0.1f),
+			glm::vec3(0.55f),
+			glm::vec3(0.55f),
+			true,
+			2048
+		));
+
+	for (auto& light : m_lightSources)
+	{
+		InitLightFBO(light);
+	}
 }
 
 
@@ -612,18 +743,22 @@ void CMyApp::Update(const SUpdateInfo& updateInfo)
 	m_DeltaTimeInSec = updateInfo.DeltaTimeInSec;
 
 	// Spin point lights
+	/*int pLightIdx = 0;
 	for (size_t i = 0; i < m_lightSources.size(); ++i)
 	{
-		if (i < 6)
+		if (m_lightSources[i].m_lightPosition.w == 1.0f)
 		{
-			float angle = glm::radians(m_ElapsedTimeInSec * 30.0f + i * 60.0f);
+			float angle = glm::radians(m_ElapsedTimeInSec * 30.0f + pLightIdx * 60.0f);
 			float x = 6.0f * cos(angle);
 			float z = 6.0f * sin(angle);
-			m_lightSources[i].m_lightPosition = glm::vec4(x, -2.0f, z, 1.0f);
-			m_lightSources[i].m_Ld = { abs(cos(angle)), abs(sin(angle)), abs(cos(angle + 1.0f)) };
+
+			m_lightSources[i].m_lightPosition.x = x;
+			m_lightSources[i].m_lightPosition.z = z;
+
+
+			pLightIdx++;
 		}
-	}
-	m_sceneObjects[2].m_worldTransform *= glm::rotate<float>(m_DeltaTimeInSec, glm::vec3(0,0,1));
+	}*/
 	m_defaultMat = { glm::vec3(m_ambient), glm::vec3(m_diffuse), glm::vec3(m_specular), 16.0 };
 }
 
@@ -637,6 +772,8 @@ void CMyApp::RenderGeometry(GLenum primitiveType)
 
 	for (const RenderObject& obj : m_sceneObjects)
 	{
+		SetUniform("receiveShadow", obj.m_receiveShadow ? 1 : 0);
+
 		DrawObject(obj, primitiveType);
 	}
 }
@@ -664,17 +801,56 @@ glm::mat4 CMyApp::GetRandOffsetProj(const glm::mat4& projection)
 	return jitter * projection;
 }
 
+void CMyApp::SetRenderPass(const RenderPassConfig& config)
+{
+	// Bind FBO and viewport
+	glBindFramebuffer(GL_FRAMEBUFFER, config.fboID);
+	glViewport(0, 0, config.viewportWidth, config.viewportHeight);
+
+	// Bind shader program
+	if (config.programID != 0) {
+		glUseProgram(config.programID);
+	}
+
+	// Enable depth test if needed
+	if (config.depthTest) glEnable(GL_DEPTH_TEST);
+	else glDisable(GL_DEPTH_TEST);
+	glDepthMask(config.depthWrite ? GL_TRUE : GL_FALSE);
+
+	// Turn on blend if needed
+	if (config.blend) {
+		glEnable(GL_BLEND);
+		glBlendEquation(config.blendEquation);
+		glBlendFunc(config.blendSrc, config.blendDst);
+	}
+	else {
+		glDisable(GL_BLEND);
+	}
+
+	// Clear buffer if needed
+	GLbitfield clearMask = 0;
+	if (config.clearColor) {
+		glClearColor(config.clearColorValue.r, config.clearColorValue.g, config.clearColorValue.b, config.clearColorValue.a);
+		clearMask |= GL_COLOR_BUFFER_BIT;
+	}
+	if (config.clearDepth) {
+		clearMask |= GL_DEPTH_BUFFER_BIT;
+	}
+
+	if (clearMask != 0) {
+		glClear(clearMask);
+	}
+
+	// bind empty vao intially (for passes that don't use their own geometry such as post)
+	glBindVertexArray(m_emptyVAO); 
+}
+
 void CMyApp::Render()
 {
 
 	//
 	// 0. Setup 
 	//
-
-	// reset state machine for good measure yay opengl
-	glEnable(GL_DEPTH_TEST);
-	glDepthMask(GL_TRUE);
-	glDisable(GL_BLEND);
 
 	glm::mat4 proj = m_camera.GetProj();
 	glm::mat4 view = m_camera.GetViewMatrix();
@@ -701,23 +877,115 @@ void CMyApp::Render()
 	glm::mat4 invVP = glm::inverse(VP);
 
 	//
-	// 1. Render geometry into G-buffer
+	// 1. Calculate shadow maps
 	//
 
-	glViewport(0, 0, m_render_w, m_render_h);
+	for (auto& light : m_lightSources)
+	{
+		light.m_currentTick++;
+		if (light.state == FBO_NOT_BOUND)
+		{
+			InitLightFBO(light);
+		}
 
-	glBindFramebuffer(GL_FRAMEBUFFER, m_geometry_fboID);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		// Directional light
+		if (light.m_lightPosition.w == 0.0f && light.m_castShadow && light.state == INITIALIZED)
+		{
+			glm::mat4 lightP = glm::ortho(-20.0f, 20.0f, -20.0f, 20.0f, 1.0f, 50.0f);
+			glm::mat4 lightV = glm::lookAt(glm::vec3(light.m_lightPosition), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+			light.m_lightVP = lightP * lightV;
 
-	// Wireframe mode
+			// config render pass
+			RenderPassConfig shadowPass = {};
+			shadowPass.fboID = light.m_shadowFBO;
+			shadowPass.viewportWidth = light.m_shadowMapSize;
+			shadowPass.viewportHeight = light.m_shadowMapSize;
+			shadowPass.depthTest = true;
+			shadowPass.depthWrite = true;
+			shadowPass.clearDepth = true;
+			shadowPass.clearColor = false;
+
+			SetRenderPass(shadowPass);
+
+			glUseProgram(m_shadow_dir_programID);
+			SetUniforms("lightVP", light.m_lightVP);
+
+			// Draw objects in the scene from light's view
+			for (const auto& obj : m_sceneObjects)
+			{
+				if (!obj.m_castShadow) continue;
+
+				glUniformMatrix4fv(ul("world"), 1, GL_FALSE, glm::value_ptr(obj.m_worldTransform));
+				glBindVertexArray(obj.m_mesh.vaoID);
+				glDrawElements(GL_TRIANGLES, obj.m_mesh.count, GL_UNSIGNED_INT, 0);
+			}
+		}
+		// Point light
+		else if (light.m_lightPosition.w == 1.0f && light.m_castShadow && light.state == INITIALIZED)
+		{
+			float z_far = 50.0f;
+
+			int face = (light.m_currentTick / light.m_updateInterval) % 6;
+
+			// bind the current indexed face of cubemap to fbo
+			glNamedFramebufferTextureLayer(light.m_shadowFBO, GL_DEPTH_ATTACHMENT, light.m_shadowTexID, 0, face);
+
+			// Cubemap's i-th face orientation (with flipped y axis)
+			glm::vec3 cubemap_dir[6] = { {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1} };
+			glm::vec3 cubemap_up[6] = { {0,-1,0}, {0,-1,0}, {0,0,1}, {0,0,-1}, {0,-1,0}, {0,-1,0} };
+
+			glm::mat4 lightP = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, z_far);
+			glm::vec3 lightPos = glm::vec3(light.m_lightPosition);
+			glm::mat4 lightV = glm::lookAt(lightPos, lightPos + cubemap_dir[face], cubemap_up[face]);
+
+			light.m_lightVP = lightP * lightV;
+
+			RenderPassConfig shadowPass = {};
+			shadowPass.fboID = light.m_shadowFBO;
+			shadowPass.viewportWidth = light.m_shadowMapSize;
+			shadowPass.viewportHeight = light.m_shadowMapSize;
+			shadowPass.depthTest = true;
+			shadowPass.depthWrite = true;
+			shadowPass.clearDepth = true;
+
+			SetRenderPass(shadowPass);
+
+			glUseProgram(m_shadow_omni_programID);
+			SetUniforms("lightVP", light.m_lightVP, 
+						"lightPos", lightPos, 
+						"z_far", z_far);
+
+			for (const auto& obj : m_sceneObjects)
+			{
+				if (!obj.m_castShadow) continue;
+
+				glUniformMatrix4fv(ul("world"), 1, GL_FALSE, glm::value_ptr(obj.m_worldTransform));
+				glBindVertexArray(obj.m_mesh.vaoID);
+				glDrawElements(GL_TRIANGLES, obj.m_mesh.count, GL_UNSIGNED_INT, 0);
+			}
+		}
+	}
+
+	//
+	// 2. Render geometry into G-buffer
+	//
+
+	RenderPassConfig geomPass = {};
+	geomPass.fboID = m_geometry_fboID;
+	geomPass.viewportWidth = m_render_w;
+	geomPass.viewportHeight = m_render_h;
+	geomPass.depthTest = true;
+	geomPass.depthWrite = true;
+	geomPass.clearColor = true;
+	geomPass.clearDepth = true;
+	geomPass.clearColorValue = glm::vec4(0.125f, 0.25f, 0.5f, 1.0f);
+
+	SetRenderPass(geomPass);
+
 	if (m_wireframe_enable) glDisable(GL_CULL_FACE);
-
-	glPolygonMode(GL_FRONT, m_wireframe_enable ? GL_LINE : GL_FILL);
-	glPolygonMode(GL_BACK, m_wireframe_enable ? GL_LINE : GL_FILL);
+	glPolygonMode(GL_FRONT_AND_BACK, m_wireframe_enable ? GL_LINE : GL_FILL);
 
 	glUseProgram(m_geom_pass_programID);
-
-	// Set uniforms for the geometry pass
 	SetUniforms(
 		"textureImage", 0,
 		"m_max_tess_level", m_max_tess_level,
@@ -727,233 +995,196 @@ void CMyApp::Render()
 		"invVP", invVP,
 		"m_cameraPos", m_camera.GetEye()
 	);
-
 	RenderGeometry(GL_PATCHES);
+
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	glEnable(GL_CULL_FACE);
 
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 	//
-	// 2. Evaluate SSAO based on G-buffer depth values
+	// 3. Evaluate SSAO based on G-buffer depth values
 	//
 
-	glBindFramebuffer(GL_FRAMEBUFFER, m_ssao_fboID);
-	glClear(GL_COLOR_BUFFER_BIT);
+	RenderPassConfig ssaoPass = {};
+	ssaoPass.fboID = m_ssao_fboID;
+	ssaoPass.viewportWidth = m_render_w;
+	ssaoPass.viewportHeight = m_render_h;
+	ssaoPass.clearColor = true;
+	ssaoPass.clearColorValue = glm::vec4(1.0f);
 
-	glBindVertexArray(m_emptyVAO);
+	SetRenderPass(ssaoPass);
 
-	// Input channels from G-buffer + noise
 	glBindTextureUnit(0, m_depthBufferID);
 	glBindTextureUnit(1, m_normalBufferID);
 	glBindTextureUnit(2, m_ssao_noise_TextureID);
 
 	glUseProgram(m_ssao_programID);
-
 	SetUniforms(
-		"gDepth", 0,
-		"gNormal", 1,
-		"texNoise", 2,
-		"view", view,
-		"proj", proj,
-		"invProj", glm::inverse(proj),
-		"invVP", invVP,
-		"resolution", glm::vec2((float)m_render_w, (float)m_render_h)
+		"gDepth", 0, "gNormal", 1, "texNoise", 2,
+		"view", view, "proj", proj, "invProj", glm::inverse(proj),
+		"invVP", invVP, "resolution", glm::vec2((float)m_render_w, (float)m_render_h)
 	);
 	glUniform3fv(ul("samples"), m_ssaoKernel.size(), (const GLfloat*)m_ssaoKernel.data());
-
-	glBindVertexArray(m_emptyVAO);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-	glEnable(GL_DEPTH_TEST);
-	glDepthMask(GL_TRUE);
-	glDisable(GL_BLEND);
-
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 	// SSAO Blur
 
-	glBindFramebuffer(GL_FRAMEBUFFER, m_ssao_blur_fboID);
-	glClear(GL_COLOR_BUFFER_BIT);
-	glDisable(GL_DEPTH_TEST);
+	RenderPassConfig ssaoBlurPass = {};
+	ssaoBlurPass.fboID = m_ssao_blur_fboID;
+	ssaoBlurPass.viewportWidth = m_render_w;
+	ssaoBlurPass.viewportHeight = m_render_h;
+	ssaoBlurPass.clearColor = true;
+	ssaoBlurPass.clearColorValue = glm::vec4(1.0f);
 
-	glBindVertexArray(m_emptyVAO);
+	SetRenderPass(ssaoBlurPass);
 
-	// Input channel is ssao
 	glBindTextureUnit(0, m_ssao_colorBufferID);
-
 	glUseProgram(m_ssao_blur_programID);
-
-	SetUniforms(
-		"ssaoTex", 0
-	);
-
-	glBindVertexArray(m_emptyVAO);
+	SetUniforms("ssaoTex", 0);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-	glEnable(GL_DEPTH_TEST);
-	glDepthMask(GL_TRUE);
-	glDisable(GL_BLEND);
-
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
 	//
-	// 3. Lighting pass
+	// 4. Lighting pass
 	//
 
-	glBindFramebuffer(GL_FRAMEBUFFER, m_deferred_light_fboID);
+	RenderPassConfig lightPass = {};
+	lightPass.fboID = m_deferred_light_fboID;
+	lightPass.viewportWidth = m_render_w;
+	lightPass.viewportHeight = m_render_h;
+	lightPass.clearColor = true;
+	lightPass.clearColorValue = glm::vec4(0.125f, 0.25f, 0.5f, 1.0f);
+	lightPass.blend = true;
+	lightPass.blendSrc = GL_ONE; // Additive blending
+	lightPass.blendDst = GL_ONE;
 
-	glClearColor(0.125f, 0.25f, 0.5f, 1.0f);
+	SetRenderPass(lightPass);
 
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-
-	glUseProgram(m_deferred_pass_programID);
-
-	SetUniforms(
-		"VP", VP,
-		"invVP", invVP,
-		"m_cameraPos", m_camera.GetEye(),
-		"ssaoTex", 3
-	);
-
-	glBindVertexArray(m_emptyVAO);
-
-	// Input channels from G-buffer
 	glBindTextureUnit(0, m_diffuseBufferID);
 	glBindTextureUnit(1, m_normalBufferID);
 	glBindTextureUnit(2, m_depthBufferID);
 	glBindTextureUnit(3, m_ssao_blur_colorBufferID);
-	
 	glBindSampler(0, 0);
 
-	// Accumulate light sources in backbuffer
-	glEnable(GL_BLEND);
-	glBlendEquation(GL_FUNC_ADD);
-	glDepthMask(GL_FALSE);
+	glUseProgram(m_deferred_pass_programID);
+	SetUniforms("VP", VP, "invVP", invVP, "m_cameraPos", m_camera.GetEye(), "ssaoTex", 3);
 
+	// Accumulate lights
 	bool first = true;
 	for (auto& light : m_lightSources)
 	{
-		// First light overwrites the backbuffer, the others are added to it 
-		if (first)
-		{
+		if (first) {
 			glBlendFunc(GL_ONE, GL_ZERO);
 			first = false;
 		}
-		else
-		{
+		else {
 			glBlendFunc(GL_ONE, GL_ONE);
 		}
 
-		CMyApp::BindLightSource(light);
-		CMyApp::BindMaterial(m_defaultMat);
+		BindLightSource(light);
+		BindMaterial(m_defaultMat);
 
-		// Draw a full-screen quad
+		if (light.m_castShadow)
+		{
+			SetUniforms("hasShadow", 1);
+
+			if (light.m_lightPosition.w == 0.0f) // Directional light
+			{
+				glBindTextureUnit(4, light.m_shadowTexID);
+				SetUniforms("lightVP", light.m_lightVP, 
+							"shadowTex", 4, 
+							"isPointLight", 0);
+			}
+			else // Point light
+			{
+				glBindTextureUnit(5, light.m_shadowTexID);
+				SetUniforms("shadowCubeTex", 5, 
+							"z_far", 50.0f, 
+							"isPointLight", 1);
+			}
+		}
+		else
+		{
+			SetUniforms("hasShadow", 0); // no shadow
+		}
+
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 	}
-	
-	// turn off blending
-	glDisable(GL_BLEND);
-	glDepthMask(GL_TRUE);
-	glEnable(GL_DEPTH_TEST);
-
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 	//
-	// 4. SSR Pass
+	// 5. SSR Pass
 	//
 
-	glBindFramebuffer(GL_FRAMEBUFFER, m_ssr_fboID);
-	glClear(GL_COLOR_BUFFER_BIT);
-	glDisable(GL_DEPTH_TEST);
+	RenderPassConfig ssrPass = {};
+	ssrPass.fboID = m_ssr_fboID;
+	ssrPass.viewportWidth = m_render_w;
+	ssrPass.viewportHeight = m_render_h;
+	ssrPass.clearColor = true;
+	ssrPass.clearColorValue = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
 
-	glUseProgram(m_ssr_programID);
+	SetRenderPass(ssrPass);
 
-	// We will sample our reflectivity value from w coordinate of the diffuse buffer
 	glBindTextureUnit(0, m_diffuseBufferID);
 	glBindTextureUnit(1, m_normalBufferID);
 	glBindTextureUnit(2, m_depthBufferID);
 	glBindTextureUnit(3, m_deferred_light_colorBufferID);
 
+	glUseProgram(m_ssr_programID);
 	SetUniforms(
-		"gDiffuse", 0,
-		"gNormal", 1,
-		"gDepth", 2,
-		"gLight", 3,
-		"proj", proj,
-		"view", view,
-		"invProj", glm::inverse(proj),
-		"invVP", invVP,
-		"resolution", glm::vec2((float)m_render_w, (float)m_render_h)
-	);;
-
-	glBindVertexArray(m_emptyVAO);
+		"gDiffuse", 0, "gNormal", 1, "gDepth", 2, "gLight", 3,
+		"proj", proj, "view", view, "invProj", glm::inverse(proj),
+		"invVP", invVP, "resolution", glm::vec2((float)m_render_w, (float)m_render_h)
+	);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
 	//
-	// 5. Accumulation pass
+	// 6. Accumulation pass
 	//
 
 	// Copy the light pass result to the accumulation buffer
 	// important: we don't clear the previous frame, because we want to accumulate the frames
-	glBindFramebuffer(GL_FRAMEBUFFER, m_accum_fboID);
+	RenderPassConfig accumPass = {};
+	accumPass.fboID = m_accum_fboID;
+	accumPass.viewportWidth = m_render_w;
+	accumPass.viewportHeight = m_render_h;
+	accumPass.clearColor = false;
+	accumPass.blend = true;
+	accumPass.blendSrc = GL_CONSTANT_COLOR;
+	accumPass.blendDst = GL_ONE_MINUS_CONSTANT_COLOR;
 
-	glDisable(GL_DEPTH_TEST);
-	glDepthMask(GL_FALSE);
-	glEnable(GL_BLEND);
-	glBlendEquation(GL_FUNC_ADD);
+	SetRenderPass(accumPass);
 
+	// Draw this frame's light pass result to the accumulation buffer
 	float w = 1.0f / static_cast<float>(m_AccumulationFrameCounter);
 	glBlendColor(w, w, w, 1.0f);
 
-	glBlendFunc(GL_CONSTANT_COLOR, GL_ONE_MINUS_CONSTANT_COLOR);
-
-	// Draw this frame's light pass result to the accumulation buffer
-
-	glUseProgram(m_postprocess_programID);
 	glBindTextureUnit(0, m_ssr_colorBufferID);
+	glUseProgram(m_postprocess_programID);
 	SetUniforms("channel_c0", 0);
-	glBindVertexArray(m_emptyVAO);
-
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-	
-
-	// turn off blending
-	glEnable(GL_DEPTH_TEST);
-	glDepthMask(GL_TRUE);
-	glDisable(GL_BLEND);
-
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-
 
 	//
-	// 6. Postprocess pass
+	// 7. Postprocess pass
 	//
 
 	// Draw the final image to the default framebuffer (screen)
 	// We draw from the accumulation buffer onto backbuffer
 
-	glViewport(0, 0, m_w, m_h);
+	RenderPassConfig screenPass = {};
+	screenPass.fboID = 0;
+	screenPass.viewportWidth = m_w;
+	screenPass.viewportHeight = m_h;
+	screenPass.clearColor = true;
+	screenPass.clearColorValue = glm::vec4(0.125f, 0.25f, 0.5f, 1.0f);
 
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	SetRenderPass(screenPass);
 
-	glClear(GL_COLOR_BUFFER_BIT);
-	glDisable(GL_DEPTH_TEST);
-
-	glUseProgram(m_postprocess_programID);
-
-	// Input channel is the light pass color buffer, bind others to 0
 	glBindTextureUnit(0, m_accum_colorBufferID);
 	glBindTextureUnit(1, 0);
 	glBindTextureUnit(2, 0);
 
+	glUseProgram(m_postprocess_programID);
 	SetUniforms("channel_c0", 0);
-
-	glBindVertexArray(m_emptyVAO);
-
-	// Draw full-screen quad
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
 	// Clean up buffers
@@ -1013,9 +1244,89 @@ void CMyApp::RenderGUI()
 
 		if (ImGui::CollapsingHeader("Lighting"))
 		{
+			ImGui::Text("Global");
 			ImGui::SliderFloat("Ambient Light", &m_ambient, 0.0f, 1.0f);
 			ImGui::SliderFloat("Diffuse Light", &m_diffuse, 0.0f, 1.0f);
 			ImGui::SliderFloat("Specular Light", &m_specular, 0.0f, 1.0f);
+			ImGui::Separator();
+
+			if (ImGui::Button("Add Point Light")) {
+				m_lightSources.push_back(CreateLight(glm::vec3(0, 5, 0), true, glm::vec3(0), glm::vec3(1), glm::vec3(1), true, 512, 6));
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Add Directional Light")) {
+				m_lightSources.push_back(CreateLight(glm::vec3(1, 1, 1), false, glm::vec3(0.1), glm::vec3(0.8), glm::vec3(0.8), true, 1024, 1));
+			}
+
+			ImGui::Separator();
+
+			for (size_t i = 0; i < m_lightSources.size(); )
+			{
+				auto& light = m_lightSources[i];
+				ImGui::PushID(static_cast<int>(i));
+
+				std::string lightName = (light.m_lightPosition.w == 1.0f) ? "Point Light " + std::to_string(i) : "Directional Light " + std::to_string(i);
+
+				bool deleteLight = false;
+
+				if (ImGui::TreeNode(lightName.c_str()))
+				{
+					// Pos / Dir
+					if (light.m_lightPosition.w == 1.0f) {
+						ImGui::DragFloat3("Position", glm::value_ptr(light.m_lightPosition), 0.1f);
+					}
+					else {
+						ImGui::DragFloat3("Direction", glm::value_ptr(light.m_lightPosition), 0.05f);
+					}
+
+					// Colors
+					ImGui::ColorEdit3("Ambient (La)", glm::value_ptr(light.m_La));
+					ImGui::ColorEdit3("Diffuse (Ld)", glm::value_ptr(light.m_Ld));
+					ImGui::ColorEdit3("Specular (Ls)", glm::value_ptr(light.m_Ls));
+
+					// Shadow
+					ImGui::Checkbox("Cast Shadow", &light.m_castShadow);
+
+					if (light.m_castShadow)
+					{
+						ImGui::SliderInt("Update Interval (Frames)", &light.m_updateInterval, 1, 60);
+					}
+
+					// Delete light
+					if (ImGui::Button("Delete Light", ImVec2(-1, 0))) {
+						deleteLight = true;
+					}
+
+					ImGui::TreePop();
+				}
+				ImGui::PopID();
+
+				// cleanup on deletion
+				if (deleteLight) {
+					CleanLightFBO(light);
+					m_lightSources.erase(m_lightSources.begin() + i);
+				}
+				else {
+					++i;
+				}
+			}
+
+			if (ImGui::CollapsingHeader("Scene Objects (Shadows)"))
+			{
+				for (size_t i = 0; i < m_sceneObjects.size(); ++i)
+				{
+					auto& obj = m_sceneObjects[i];
+					ImGui::PushID(static_cast<int>(i));
+					if (ImGui::TreeNode((std::string("Object ") + std::to_string(i)).c_str()))
+					{
+						ImGui::Checkbox("Cast Shadow", &obj.m_castShadow);
+						ImGui::Checkbox("Receive Shadow", &obj.m_receiveShadow);
+						ImGui::TreePop();
+					}
+					ImGui::PopID();
+				}
+			}
+
 
 		}
 	} //window
