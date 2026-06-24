@@ -200,7 +200,7 @@ void CMyApp::InitGeometry()
 	m_sceneObjects.push_back(CreateObject(
 		"Assets/Mirror.obj",
 		vertexAttribList,
-		"Assets/mirror.png",
+		"",
 		m_defaultMat,
 		glm::translate(glm::vec3(0, -3.5, 0)) * glm::scale(glm::vec3(0.135, 0.3, 0.085)),
 		1.0f
@@ -215,7 +215,7 @@ void CMyApp::InitGeometry()
 		m_birdWorldTransform,
 		0.0f
 	));
-
+	
 	// Wall, load tex manually
 	const std::string wallTex = "Assets/wall.jpg";
 	ImageRGBA image = ImageFromFile(wallTex);
@@ -243,16 +243,17 @@ void CMyApp::InitGeometry()
 			0.35f
 		));
 	}
-
-	/*// table
+	
+	// table
 	m_sceneObjects.push_back(CreateObject(
 		"Assets/table.obj",
 		vertexAttribList,
 		"Assets/table.jpg",
 		m_defaultMat,
 		glm::translate(glm::vec3(10, -15, 0)) * glm::scale(glm::vec3(0.1, 0.1, 0.1)) * glm::rotate<float>(glm::radians(-90.0), glm::vec3(1, 0, 0)),
-		0.0f
-	));*/
+		0.25f
+	));
+
 }
 
 void CMyApp::CleanGeometry()
@@ -268,7 +269,7 @@ void CMyApp::CleanGeometry()
 
 void CMyApp::InitLightFBO(Light& light)
 {
-	if (light.state != FBO_NOT_BOUND) return;
+	if (light.state == INITIALIZED) return;
 
 	// Directional light
 	if (light.m_lightPosition.w == 0.0f) 
@@ -356,11 +357,14 @@ void CMyApp::CleanLightFBO(Light& light)
 	glDeleteFramebuffers(1, &light.m_shadowFBO);
 	glDeleteTextures(1, &light.m_shadowTexID);
 	light.state = NOT_INITIALIZED;
+	light.m_shadowFBO = 0;
+	light.m_shadowTexID = 0;
 }
 
 
 void CMyApp::InitLightSources()
 {
+	
 	// Lights in a hexagonal shape
 	for (int i = 0; i < 6; ++i)
 	{
@@ -776,6 +780,7 @@ void CMyApp::RenderGeometry(GLenum primitiveType)
 
 		DrawObject(obj, primitiveType);
 	}
+	glBindSampler(0, 0);
 }
 
 void CMyApp::DrawAxes()
@@ -1064,6 +1069,7 @@ void CMyApp::Render()
 	glBindTextureUnit(1, m_normalBufferID);
 	glBindTextureUnit(2, m_depthBufferID);
 	glBindTextureUnit(3, m_ssao_blur_colorBufferID);
+
 	glBindSampler(0, 0);
 
 	glUseProgram(m_deferred_pass_programID);
