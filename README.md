@@ -12,10 +12,6 @@
 <!-- PROJECT LOGO -->
 <br />
 <div align="center">
-  <a href="https://github.com/gergoa/halado_beadando">
-    <img src="images/logo.png" alt="Logo" width="80" height="80">
-  </a>
-
 <h3 align="center">Advanced OpenGL Rendering Engine</h3>
 
   <p align="center">
@@ -61,9 +57,9 @@ This project implements a modern rendering pipeline focusing on performance, dyn
 ### ⚙️ Core Architecture: Deferred Shading
 
 <div align="center">
-  <img src="scene_layers.gif" alt="Deferred Shading Debug Layers" width="100%">
+  <img src="img/scene_layers.gif" alt="Deferred Shading Debug Layers" width="100%">
   <br>
-  <em>Debug uniform views — 1: Final Lit, 2: Diffuse/Albedo, 3: World Normals, 4: Depth, 5: SSAO, 6: Shadowmap</em>
+  <em>Debug views — 1: Final Lit, 2: Diffuse/Albedo, 3: World Normals, 4: Depth, 5: SSAO, 6: Shadowmap</em>
 </div>
 <br>
 
@@ -79,11 +75,11 @@ The backbone of the engine is a robust Deferred Shading pipeline that decouples 
   <table>
     <tr>
       <td align="center">
-        <img src="stagger_shadowmap.gif" alt="Staggered Shadow Map Updates" width="100%">
+        <img src="img/stagger_shadowmap.gif" alt="Staggered Shadow Map Updates" width="100%">
         <br><em>Staggered Shadow Map Updates</em>
       </td>
       <td align="center">
-        <img src="lighting_ui.gif" alt="Dynamic Lighting UI" width="100%">
+        <img src="img/lighting_ui.gif" alt="Dynamic Lighting UI" width="100%">
         <br><em>Real-time Lighting UI</em>
       </td>
     </tr>
@@ -101,11 +97,11 @@ The backbone of the engine is a robust Deferred Shading pipeline that decouples 
   <table>
     <tr>
       <td align="center">
-        <img src="duck_ssr.png" alt="Screen Space Reflections (SSR)" width="100%">
+        <img src="img/duck_ssr.png" alt="Screen Space Reflections (SSR)" width="100%">
         <br><b>Duck SSR Showcase</b>
       </td>
       <td align="center">
-        <img src="suzanne_ssao.png" alt="Screen Space Ambient Occlusion (SSAO)" width="100%">
+        <img src="img/suzanne_ssao.png" alt="Screen Space Ambient Occlusion (SSAO)" width="100%">
         <br><b>Suzanne SSAO Debug Pass</b>
       </td>
     </tr>
@@ -119,7 +115,7 @@ The backbone of the engine is a robust Deferred Shading pipeline that decouples 
 ### 📐 Geometry & Advanced Rendering Techniques
 
 <div align="center">
-  <img src="images/tess_showcase.gif" alt="Distance-based Tessellation" width="100%">
+  <img src="img/tess_showcase.gif" alt="Distance-based Tessellation" width="100%">
   <br>
   <em>Distance-based Tessellation Demo</em>
 </div>
