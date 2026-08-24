@@ -61,23 +61,33 @@ This project implements a modern rendering pipeline focusing on performance, dyn
 ### ⚙️ Core Architecture: Deferred Shading
 
 <div align="center">
-  <img src="images/placeholder_deferred.png" alt="Deferred Shading Showcase" width="100%">
+  <img src="scene_layers.gif" alt="Deferred Shading Debug Layers" width="100%">
   <br>
-  <em>(placeholder)</em>
+  <em>Debug uniform views — 1: Final Lit, 2: Diffuse/Albedo, 3: World Normals, 4: Depth, 5: SSAO, 6: Shadowmap</em>
 </div>
 <br>
 
 The backbone of the engine is a robust Deferred Shading pipeline that decouples geometry rendering from lighting calculations for optimized performance.
-* **Geometry Pass:** Renders scene data into a G-Buffer consisting of Diffuse (GL_RGBA8), Normal (GL_RGB16_SNORM), and Depth (GL_DEPTH_COMPONENT24) textures.
+
+* **Geometry Pass:** Renders scene data into a G-Buffer consisting of Diffuse (`GL_RGBA8`), Normal (`GL_RGB16_SNORM`), and Depth (`GL_DEPTH_COMPONENT24`) textures.
 * **Light Pass:** Accumulates lighting contributions in the default framebuffer.
 * **Optimized Reconstruction:** World-space positions of surface points are mathematically reconstructed entirely from the depth buffer and camera matrices, minimizing memory bandwidth.
 
 ### 💡 Advanced Illumination & Shadows
 
 <div align="center">
-  <img src="images/placeholder_shadows.png" alt="Dynamic Shadows and UI" width="100%">
-  <br>
-  <em>(placeholder)</em>
+  <table>
+    <tr>
+      <td align="center">
+        <img src="stagger_shadowmap.gif" alt="Staggered Shadow Map Updates" width="100%">
+        <br><em>Staggered Shadow Map Updates</em>
+      </td>
+      <td align="center">
+        <img src="lighting_ui.gif" alt="Dynamic Lighting UI" width="100%">
+        <br><em>Real-time Lighting UI</em>
+      </td>
+    </tr>
+  </table>
 </div>
 <br>
 
@@ -88,9 +98,18 @@ The backbone of the engine is a robust Deferred Shading pipeline that decouples 
 ### 🪞 Screen Space Effects
 
 <div align="center">
-  <img src="images/placeholder_screenspace.png" alt="SSR and SSAO Effects" width="100%">
-  <br>
-  <em>(placeholder)</em>
+  <table>
+    <tr>
+      <td align="center">
+        <img src="duck_ssr.png" alt="Screen Space Reflections (SSR)" width="100%">
+        <br><b>Duck SSR Showcase</b>
+      </td>
+      <td align="center">
+        <img src="suzanne_ssao.png" alt="Screen Space Ambient Occlusion (SSAO)" width="100%">
+        <br><b>Suzanne SSAO Debug Pass</b>
+      </td>
+    </tr>
+  </table>
 </div>
 <br>
 
@@ -100,15 +119,24 @@ The backbone of the engine is a robust Deferred Shading pipeline that decouples 
 ### 📐 Geometry & Advanced Rendering Techniques
 
 <div align="center">
-  <img src="images/placeholder_geometry.png" alt="Tessellation and Portals" width="100%">
+  <img src="images/tess_showcase.gif" alt="Distance-based Tessellation" width="100%">
   <br>
-  <em>(placeholder)</em>
+  <em>Distance-based Tessellation Demo</em>
 </div>
 <br>
 
 * **Distance-Adaptive Mesh Tessellation:** Implements hardware tessellation using a 6-point triangular Bézier surface. Calculates tessellation levels dynamically per-edge based on camera distance, ensuring seamless transitions, continuous edges, and zero visual artifacts (no cracks or flickering) during camera movement.
 * **Rasterized Portals:** Features a recursive portal system. Uses Framebuffer Objects (FBOs) and dynamically transformed cameras to render seamless views through portals, complete with optimized frustum culling.
 * **Progressive Rendering & Anti-Aliasing:** Includes a "freeze time" mechanic where scene updates halt but the camera remains free. When the camera is static, the engine performs temporal accumulation with random subpixel jittering (1-pixel maximum offset) to generate  supersampled, anti-aliased frames (SSAA).
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+<!-- CREDITS -->
+## Credits & Acknowledgments
+
+* **Bird / Duck 3D Model ("Bird v1")**: Created by [printable_models](https://free3d.com/3d-model/bird-v1--282209.html) via Free3D (Personal Use License).
+* **Weathered Textures**: Sourced from [Textures.com](https://www.textures.com/browse/regular-weathered/115004).
+* **3D Model ("hsm0022-v2")**: Sourced via [Free3D](https://free3d.com/3d-model/hsm0022-v2--672066.html) (Personal Use License).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -140,7 +168,7 @@ Project Link: [https://github.com/gergoa/halado_beadando](https://github.com/ger
 [license-shield]: https://img.shields.io/github/license/gergoa/halado_beadando.svg?style=for-the-badge
 [license-url]: https://github.com/gergoa/halado_beadando/blob/master/LICENSE.txt
 [linkedin-shield]: https://img.shields.io/badge/-LinkedIn-black.svg?style=for-the-badge&logo=linkedin&colorB=555
-[linkedin-url]: https://linkedin.com/in/linkedin_username
+[linkedin-url]: https://www.linkedin.com/in/gergo-asztalos-9b8280427/
 
 [Cpp-shield]: https://img.shields.io/badge/C++-00599C?style=for-the-badge&logo=c%2B%2B&logoColor=white
 [Cpp-url]: https://cplusplus.com/
