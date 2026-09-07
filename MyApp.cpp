@@ -287,7 +287,7 @@ void CMyApp::InitGeometry()
 		"Assets/table.jpg",
 		m_defaultMat,
 		glm::translate(glm::vec3(10, -15, 0)) * glm::scale(glm::vec3(0.1, 0.1, 0.1)) * glm::rotate<float>(glm::radians(-90.0), glm::vec3(1, 0, 0)),
-		0.25f
+		0.15f
 	));
 
 	// Portals
@@ -922,9 +922,20 @@ void CMyApp::RenderGeometry(GLenum primitiveType)
 		glPatchParameteri(GL_PATCH_VERTICES, 3);
 	}
 
-	for (const RenderObject& obj : m_sceneObjects)
+	size_t blueIdx = m_sceneObjects.size() - 2;
+	size_t orangeIdx = m_sceneObjects.size() - 1;
+
+	for (size_t i = 0; i < m_sceneObjects.size(); ++i)
 	{
+		const RenderObject& obj = m_sceneObjects[i];
 		SetUniform("receiveShadow", obj.m_receiveShadow ? 1 : 0);
+
+		if (i == blueIdx || i == orangeIdx) {
+			SetUniform("isPortal", 1);
+		}
+		else {
+			SetUniform("isPortal", 0);
+		}
 
 		DrawObject(obj, primitiveType);
 	}
@@ -948,18 +959,14 @@ glm::mat4 CMyApp::GetPortalView(const glm::mat4& camView, const glm::mat4& srcPo
 {
 	// camera view space -> world space
 	glm::mat4 camWorld = glm::inverse(camView);
-
 	
-	glm::mat4 camPosSrc = 
-		glm::rotate(glm::radians(180.0f), glm::vec3(0, 1, 0)) 
-		* glm::inverse(srcPortal) 
-		* camWorld;
+	glm::mat4 relativeTransform = glm::inverse(srcPortal) * camWorld;
 
+	glm::mat4 flip = glm::rotate(glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 	// trasnform our camera to the destination portal's world position
-	glm::mat4 portalCamWorld = dstPortal * camPosSrc;
+	glm::mat4 portalCamWorld = dstPortal * flip * relativeTransform;
 
-	glm::mat4 transform = glm::inverse(portalCamWorld);
-	return transform;
+	return glm::inverse(portalCamWorld);
 }
 
 glm::mat4 RemoveScale(glm::mat4 m)
@@ -987,8 +994,8 @@ void CMyApp::RenderPortal(
 	glm::mat4 dstNoScaling = RemoveScale(dstPortal.m_worldTransform);
 
 
-	glm::mat4 virtualCamView = GetPortalView(camView, srcNoScaling, dstNoScaling);
-	glm::mat4 VP = camProj * virtualCamView;
+	glm::mat4 virtualCamPos = GetPortalView(camView, srcNoScaling, dstNoScaling);
+	glm::mat4 VP = camProj * virtualCamPos;
 
 	glm::vec3 wPortalPos = glm::vec3(dstNoScaling[3]);
 	glm::vec3 wPortalNorm = glm::normalize(glm::vec3(dstNoScaling[2]));
@@ -1010,7 +1017,7 @@ void CMyApp::RenderPortal(
 	SetRenderPass(portalPass);
 	glUseProgram(m_portal_programID);
 	SetUniforms("VP", VP,
-				"clipPlane", clipPlane);
+		"clipPlane", clipPlane);
 
 	glEnable(GL_CLIP_DISTANCE0);
 
@@ -1197,7 +1204,7 @@ void CMyApp::Render()
 			// bind the current indexed face of cubemap to fbo
 			glNamedFramebufferTextureLayer(light.m_shadowFBO, GL_DEPTH_ATTACHMENT, light.m_shadowTexID, 0, face);
 
-			// Cubemap's i-th face orientation (with flipped y axis)
+			// Cubemap's i-th face orientation
 			glm::vec3 cubemap_dir[6] = { {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1} };
 			glm::vec3 cubemap_up[6] = { {0,-1,0}, {0,-1,0}, {0,0,1}, {0,0,-1}, {0,-1,0}, {0,-1,0} };
 
@@ -1260,7 +1267,8 @@ void CMyApp::Render()
 		"m_max_tess_dist", m_max_tess_dist,
 		"VP", VP,
 		"invVP", invVP,
-		"m_cameraPos", m_camera.GetEye()
+		"m_cameraPos", m_camera.GetEye(),
+		"resolution", glm::vec2((float)m_render_w, (float)m_render_h)
 	);
 	RenderGeometry(GL_PATCHES);
 
@@ -1320,10 +1328,8 @@ void CMyApp::Render()
 	lightPass.viewportWidth = m_render_w;
 	lightPass.viewportHeight = m_render_h;
 	lightPass.clearColor = true;
-	lightPass.clearColorValue = glm::vec4(0.125f, 0.25f, 0.5f, 1.0f);
-	lightPass.blend = true;
-	lightPass.blendSrc = GL_ONE; // Additive blending
-	lightPass.blendDst = GL_ONE;
+	lightPass.clearColorValue = glm::vec4(0.125f, 0.25f, 0.5f, 1.0f); // Restored clear color
+	lightPass.blend = false; // we handle blending manually below
 
 	SetRenderPass(lightPass);
 
@@ -1335,48 +1341,82 @@ void CMyApp::Render()
 	glBindSampler(0, 0);
 
 	glUseProgram(m_deferred_pass_programID);
-	SetUniforms("VP", VP, "invVP", invVP, "m_cameraPos", m_camera.GetEye(), "ssaoTex", 3);
 
-	// Accumulate lights
-	bool first = true;
-	for (auto& light : m_lightSources)
+	SetUniforms("VP", VP,
+		"invVP", invVP,
+		"m_cameraPos", m_camera.GetEye(),
+		"ssaoTex", 3,
+		"debugMode", currentDebugMode,
+		"z_near", 0.1f,
+		"z_far", 100.0f);
+
+	// debug mode
+	if (currentDebugMode > 0)
 	{
-		if (first) {
-			glBlendFunc(GL_ONE, GL_ZERO);
-			first = false;
-		}
-		else {
-			glBlendFunc(GL_ONE, GL_ONE);
-		}
+		glDisable(GL_BLEND);
 
-		BindLightSource(light);
-		BindMaterial(m_defaultMat);
-
-		if (light.m_castShadow)
+		// bind the directional sunlight for shadow debug (Mode 5) if it exists
+		if (!m_lightSources.empty())
 		{
-			SetUniforms("hasShadow", 1);
+			auto& dirLight = m_lightSources.back();
+			BindLightSource(dirLight);
+			BindMaterial(m_defaultMat);
 
-			if (light.m_lightPosition.w == 0.0f) // Directional light
+			if (dirLight.m_castShadow && dirLight.m_lightPosition.w == 0.0f)
 			{
-				glBindTextureUnit(4, light.m_shadowTexID);
-				SetUniforms("lightVP", light.m_lightVP, 
-							"shadowTex", 4, 
-							"isPointLight", 0);
+				glBindTextureUnit(4, dirLight.m_shadowTexID);
+				SetUniforms("hasShadow", 1, "lightVP", dirLight.m_lightVP, "shadowTex", 4, "isPointLight", 0);
 			}
-			else // Point light
+			else
 			{
-				glBindTextureUnit(5, light.m_shadowTexID);
-				SetUniforms("shadowCubeTex", 5, 
-							"z_far", 50.0f, 
-							"isPointLight", 1);
+				SetUniforms("hasShadow", 0);
 			}
-		}
-		else
-		{
-			SetUniforms("hasShadow", 0); // no shadow
 		}
 
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	}
+	// normal light
+	else
+	{
+		bool first = true;
+		for (auto& light : m_lightSources)
+		{
+			if (first) {
+				glDisable(GL_BLEND); // first light overrides the clear color
+				first = false;
+			}
+			else {
+				glEnable(GL_BLEND);
+				glBlendEquation(GL_FUNC_ADD);
+				glBlendFunc(GL_ONE, GL_ONE); // subsequent ones add to the buffer
+			}
+
+			BindLightSource(light);
+			BindMaterial(m_defaultMat);
+
+			if (light.m_castShadow)
+			{
+				SetUniforms("hasShadow", 1);
+
+				if (light.m_lightPosition.w == 0.0f) // Directional light
+				{
+					glBindTextureUnit(4, light.m_shadowTexID);
+					SetUniforms("lightVP", light.m_lightVP, "shadowTex", 4, "isPointLight", 0);
+				}
+				else // Point light
+				{
+					glBindTextureUnit(5, light.m_shadowTexID);
+					SetUniforms("shadowCubeTex", 5, "z_far", 50.0f, "isPointLight", 1);
+				}
+			}
+			else
+			{
+				SetUniforms("hasShadow", 0);
+			}
+
+			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+		}
+		glDisable(GL_BLEND);
 	}
 
 	//
@@ -1388,22 +1428,36 @@ void CMyApp::Render()
 	ssrPass.viewportWidth = m_render_w;
 	ssrPass.viewportHeight = m_render_h;
 	ssrPass.clearColor = true;
-	ssrPass.clearColorValue = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+	ssrPass.clearColorValue = glm::vec4(0.125f, 0.25f, 0.5f, 1.0f); // Restored clear color
 
 	SetRenderPass(ssrPass);
 
-	glBindTextureUnit(0, m_diffuseBufferID);
-	glBindTextureUnit(1, m_normalBufferID);
-	glBindTextureUnit(2, m_depthBufferID);
-	glBindTextureUnit(3, m_deferred_light_colorBufferID);
+	if (currentDebugMode > 0)
+	{
+		// copy lighting FBO directly to SSR FBO without running reflection raymarching
+		glBindTextureUnit(0, m_deferred_light_colorBufferID);
 
-	glUseProgram(m_ssr_programID);
-	SetUniforms(
-		"gDiffuse", 0, "gNormal", 1, "gDepth", 2, "gLight", 3,
-		"proj", proj, "view", view, "invProj", glm::inverse(proj),
-		"invVP", invVP, "resolution", glm::vec2((float)m_render_w, (float)m_render_h)
-	);
-	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+		glUseProgram(m_postprocess_programID);
+		SetUniforms("channel_c0", 0);
+
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	}
+	else
+	{
+		// standard SSR
+		glBindTextureUnit(0, m_diffuseBufferID);
+		glBindTextureUnit(1, m_normalBufferID);
+		glBindTextureUnit(2, m_depthBufferID);
+		glBindTextureUnit(3, m_deferred_light_colorBufferID);
+
+		glUseProgram(m_ssr_programID);
+		SetUniforms(
+			"gDiffuse", 0, "gNormal", 1, "gDepth", 2, "gLight", 3,
+			"proj", proj, "view", view, "invProj", glm::inverse(proj),
+			"invVP", invVP, "resolution", glm::vec2((float)m_render_w, (float)m_render_h)
+		);
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	}
 
 	//
 	// 6. Accumulation pass
@@ -1452,7 +1506,6 @@ void CMyApp::Render()
 	glBindTextureUnit(2, 0);
 
 	glUseProgram(m_postprocess_programID);
-	SetUniforms("channel_c0", 0);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
 	// Clean up buffers
@@ -1490,6 +1543,10 @@ void CMyApp::RenderGUI()
 
 			ImGui::SliderFloat("Refresh time", &refresh_time, 0.01f, 1.0f);
 			ImGui::SliderFloat("Rendering resolution", &m_renderResolution, 0.1f, 1.0f);
+			if (ImGui::SliderInt("Debug mode", &currentDebugMode, 0, 5)) {
+				CleanShaders();
+				InitShaders();
+			}
 		}
 
 

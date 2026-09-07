@@ -15,6 +15,12 @@ layout (binding = 5) uniform samplerCube shadowCubeTex;
 uniform vec3 m_cameraPos;
 uniform mat4 invVP;
 
+//debug uniform
+// 0: Final Lit, 1: Diffuse/Albedo, 2: World Normals, 3: Linear Depth, 4: SSAO, 5: Shadow Factor
+uniform int debugMode = 0;
+uniform float z_near = 0.1;
+uniform float z_far  = 100.0;
+
 // fényforrás tulajdonságok 
 uniform vec4 lightPosition = vec4( 0.0, 1.0, 0.0, 0.0);
 
@@ -27,7 +33,6 @@ uniform float lightLinearAttenuation      = 0.075;
 uniform float lightQuadraticAttenuation   = 0.033;
 
 uniform int isPointLight;
-uniform float z_far;
 
 // shadowmap tulajdonságok
 
@@ -70,18 +75,17 @@ struct MaterialProperties
 
 vec3 lighting(LightProperties light, vec3 position, vec3 normal, MaterialProperties material)
 {
+	vec3 ToLight; 
+	float Attenuation = 1.0; 
 	
-	vec3 ToLight; // A fényforrásBA mutató vektor 
-	float Attenuation = 1.0; // Attenuáció (fényelhalás) 
-	
-	if ( light.pos.w == 0.0 ) // irány fényforrás (directional light) 
+	if ( light.pos.w == 0.0 ) 
 	{
 		// Irányfényforrás esetén minden pont ugyan abból az irányból van megvilágítva
 		ToLight	= light.pos.xyz;
 
 		// Az attenuációt hagyjuk 1-en, hogy ne változtassa a fényt
 	}
-	else				  // pont fényforrás (positional light) 
+	else 
 	{
 		// Pontfényforrás esetén kiszámoljuk a fragment pontból a fényforrásba mutató vektort, ...
 		ToLight	= light.pos.xyz - position;
@@ -125,26 +129,49 @@ vec3 getWorldPos(float depth, vec2 uv)
 	vec3 ndc = vec3(uv * 2.0 - 1.0, depth * 2.0 - 1.0);
 
 	vec4 wp = (invVP * vec4(ndc, 1.0));
-
-	// Homogén koordináták
 	return wp.xyz / wp.w;
+}
+
+float linearDepth(float depth) 
+{
+    float z_ndc = depth * 2.0 - 1.0;
+    float linearZ = (2.0 * z_near * z_far) / (z_far + z_near - z_ndc * (z_far - z_near));
+    return (linearZ - z_near) / (z_far - z_near);
 }
 
 void main()
 {
-
-	// A fragment normálvektora 
-	// MINDIG normalizáljuk! 
-	vec4 normalData = texture(g_normal, vs_out_uv);
-	vec3 normal = normalize(normalData.xyz * 2.0 - 1.0); // normal has to be converted from [0, 1] back to [-1, 1] 
 	float depth = texture( g_depth, vs_out_uv).x;
-	float shadowFlag = normalData.w;
-
 
 	// Nem árnyaljuk a hátteret
 	if (depth >= 1.0) {
 		discard;
 	}
+
+	vec4 normalData = texture(g_normal, vs_out_uv);
+	vec3 rawNormal = normalData.xyz; 
+	vec3 normal = normalize(rawNormal * 2.0 - 1.0); 
+	float shadowFlag = normalData.w;
+
+    // 
+    if (debugMode == 1) {
+        fs_out_col = vec4(texture(g_diffuse, vs_out_uv).rgb, 1.0);
+        return;
+    }
+    if (debugMode == 2) {
+        fs_out_col = vec4(rawNormal, 1.0);
+        return;
+    }
+    if (debugMode == 3) {
+        float linDepth = linearDepth(depth);
+        fs_out_col = vec4(vec3(linDepth), 1.0);
+        return;
+    }
+    if (debugMode == 4) {
+        float ao = texture(ssaoTex, vs_out_uv).r;
+        fs_out_col = vec4(vec3(ao), 1.0);
+        return;
+    }
 
 	vec3 worldPos = getWorldPos(depth, vs_out_uv);
 
@@ -209,6 +236,10 @@ void main()
         shadow = 1.0;
     }
 
+    if (debugMode == 5) {
+        fs_out_col = vec4(vec3(shadow), 1.0);
+        return;
+    }
 
 	LightProperties light;
 	light.pos = lightPosition;
@@ -226,5 +257,5 @@ void main()
 	material.Shininess = Shininess;
 
 	vec3 shadedColor = lighting(light, worldPos, normal, material);
-	fs_out_col = vec4(shadedColor, 1) * texture(g_diffuse, vs_out_uv);
+	fs_out_col = vec4(shadedColor, 1.0) * vec4(texture(g_diffuse, vs_out_uv).rgb, 1.0);
 }

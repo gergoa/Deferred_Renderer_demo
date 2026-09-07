@@ -19,10 +19,17 @@ uniform float m_reflectivity = 0.0f;
 
 uniform int receiveShadow;
 
+uniform int isPortal;
+uniform vec2 resolution;
 
 void main()
 {
-	vec4 fragColor = texture(textureImage, In.uv);
+	vec4 fragColor;
+	if (isPortal == 1) 
+    {
+        fragColor = texture(textureImage, gl_FragCoord.xy / resolution);
+    }
+	else fragColor = texture(textureImage, In.uv);
 
 	fs_out_diffuse = vec4(fragColor.xyz, m_reflectivity);
 	fs_out_norm = vec4(normalize(In.normal), float(receiveShadow) * 2.0 - 1.0) * 0.5 + 0.5; // normal is in world space outgoing, in [0, 1] to avoid driver magic

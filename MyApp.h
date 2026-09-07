@@ -77,6 +77,7 @@ protected:
 	int m_render_w;
 	int m_render_h;
 	float m_renderResolution = 1.0f;
+	int currentDebugMode = 0;
 
 	float m_ElapsedTimeInSec = 0.0f;
 	float m_DeltaTimeInSec = 0.0f;
