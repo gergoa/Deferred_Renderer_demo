@@ -148,7 +148,7 @@ Distributed under the MIT License. See `LICENSE.txt` for more information.
 
 Gergely Asztalos - gergoasztalos26@gmail.com
 
-Project Link: [https://github.com/gergoa/halado_beadando](https://github.com/gergoa/halado_beadando)
+Project Link: [https://github.com/gergoa/halado_beadando](https://github.com/gergoa/Deferred_Renderer_demo)
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
